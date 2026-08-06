@@ -1,5 +1,7 @@
 # NordFolio
 
+> **OBS:** Dette er et “vibecodet” projekt! Alt brug er på eget ansvar..!
+
 Et lokalt afviklet og privatlivsfokuseret porteføljeværktøj til Nordnet-eksportfiler. NordFolio rekonstruerer din transaktionshistorik, beregner din reelle anskaffelsesværdi (AVCO) og visualiserer tidsvægtet afkast (TWR) og drawdowns – 100% lokalt på din egen maskine.
 
 Al din transaktionshistorik og dine personlige indstillinger gemmes **lokalt i en enkelt JSON-databasefil (`db.json`)**. Ingen finansielle data eller personlige oplysninger forlader nogensinde din computer.
