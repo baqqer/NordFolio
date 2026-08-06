@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NordFolio</title>
+    <link rel="stylesheet" href="style.css?v=1.0.1">
+    <!-- Chart.js via CDN for responsive rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <header class="app-header">
+        <div class="header-container">
+            <div class="logo">
+                <span class="logo-icon">📊</span>
+                <h1>NordFolio</h1>
+            </div>
+            <div class="header-actions" style="display: flex; align-items: center; gap: 0.75rem;">
+                <div id="header-api-badge" style="display: flex; align-items: center; gap: 0.35rem; background-color: rgba(30, 41, 59, 0.6); padding: 0.35rem 0.65rem; border-radius: 0.375rem; border: 1px solid var(--border-color); font-size: 0.7rem; font-weight: 600; color: var(--text-muted);" title="FX-kurser API-forbindelsesstatus">
+                    <span id="header-api-status-dot" style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: #64748b; box-shadow: 0 0 5px #64748b;"></span>
+                    <span id="header-api-status-text">FX-kurser: Kontrollerer</span>
+                </div>
+                <input type="file" id="csv-file-input-header" accept=".csv" onchange="handleHeaderFileSelect(this)" style="display: none;">
+                <button class="btn btn-primary btn-sm" onclick="document.getElementById('csv-file-input-header').click()" style="cursor: pointer; padding: 0.4rem 0.8rem; font-size: 0.8rem; border-radius: 0.375rem;">Importer CSV</button>
+                <button id="btn-reset-db" class="btn btn-danger btn-sm" onclick="confirmResetDB()" style="cursor: pointer; padding: 0.4rem 0.8rem; font-size: 0.8rem; border-radius: 0.375rem;">Nulstil database</button>
+            </div>
+        </div>
+    </header>
+
+    <div id="header-import-status" class="alert hidden" style="margin: 1rem auto; max-width: 1200px;"></div>
+
+    <nav class="tab-nav" style="max-width: 1400px; margin: 1.5rem auto 0 auto; padding: 0 2rem 0.5rem 2rem;">
+        <button class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard')">Overblik</button>
+        <button class="tab-btn" data-tab="assets" onclick="switchTab('assets')">Aktiver & Priser</button>
+        <button class="tab-btn" data-tab="transactions" onclick="switchTab('transactions')">Transaktioner</button>
+    </nav>
+
+    <main class="app-content">
+        <!-- Tab 1: Overblik (Dashboard) -->
+        <section id="tab-dashboard" class="tab-content active">
+            <!-- Upload-panel hvis databasen er tom -->
+            <div id="upload-panel" class="upload-panel card hidden">
+                <div class="upload-container">
+                    <h3>Importer Nordnet transaktioner</h3>
+                    <p>Vælg din tab-separerede WINDOWS-1252/UTF-8 eksportfil (f.eks. <code>transactions-and-notes-export.csv</code>) for at indlæse din porteføljehistorik.</p>
+                    <div class="all-time-history-warning" style="background-color: var(--danger-bg); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 0.5rem; padding: 0.75rem 1.25rem; margin: 1rem auto 1.5rem auto; max-width: 600px; font-size: 0.825rem; text-align: left; color: #fca5a5; line-height: 1.4; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
+                        <strong>Crucial Requirement:</strong> Din eksportfil <strong>SKAL indeholde hele din transaktionshistorik</strong> (fra dag ét). Indlæsning af en delvis historik vil resultere i manglende startbalancer, forkerte kontosaldi og skæve gennemsnitlige anskaffelsesværdier (AVCO-metoden), hvilket gør dashboardets nøgletal misvisende.
+                    </div>
+                    <form id="upload-form" onsubmit="handleUpload(event)">
+                        <div class="file-drop-area">
+                            <input type="file" id="csv-file-input" name="file" accept=".csv" required onchange="updateFileLabel()">
+                            <span class="file-msg">Vælg en CSV-fil...</span>
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="upload-btn">Indlæs og importer</button>
+                    </form>
+                    <div id="upload-status" class="alert hidden"></div>
+                </div>
+            </div>
+
+            <!-- Dashboard Analytics-netværk -->
+            <div id="analytics-grid" class="analytics-grid hidden">
+                <!-- Kontovalg række -->
+                <div class="card" style="padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; flex-wrap: wrap; margin-bottom: -0.5rem;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">Vis konti:</span>
+                        <div id="accounts-toggle-container" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                            <!-- Populeret dynamisk af JS -->
+                        </div>
+                    </div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">
+                        Interne overførsler mellem valgte konti ignoreres, mens overførsler til/fra skjulte konti automatisk behandles som eksterne indbetalinger/hævninger.
+                    </div>
+                </div>
+
+                <!-- KPI-kort række (Placeret øverst!) -->
+                <div class="kpi-grid">
+                    <div class="kpi-card card" id="kpi-total-val">
+                        <h3>Samlet porteføljeværdi</h3>
+                        <div class="kpi-value">0,00 DKK</div>
+                        <div class="kpi-sub" id="kpi-gain-loss">Afkast: 0,00 DKK (0,00%)</div>
+                    </div>
+                    <div class="kpi-card card" id="kpi-securities-val">
+                        <h3>Værdipapirer (Aktier/fonde)</h3>
+                        <div class="kpi-value">0,00 DKK</div>
+                        <div class="kpi-sub" id="kpi-securities-pct">Porteføljevægt: 0,00%</div>
+                    </div>
+                    <div class="kpi-card card" id="kpi-etfs-val">
+                        <h3>ETF'er</h3>
+                        <div class="kpi-value">0,00 DKK</div>
+                        <div class="kpi-sub" id="kpi-etfs-pct">Porteføljevægt: 0,00%</div>
+                    </div>
+                    <div class="kpi-card card" id="kpi-cash-val">
+                        <h3>Kontantbeholdning</h3>
+                        <div class="kpi-value">0,00 DKK</div>
+                        <div class="kpi-sub" id="kpi-cash-pct">Porteføljevægt: 0,00%</div>
+                    </div>
+                </div>
+
+                <!-- Række 1: Diagrammer (Tidslinie & Unified Cirkeldiagram!) -->
+                <div class="chart-row">
+                    <div class="chart-card card growth-chart-container">
+                        <div class="chart-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                            <h3>Porteføljens udvikling over tid</h3>
+                            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                                <select id="growth-metric-select" onchange="changeGrowthMetric()" style="background-color: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); border-radius: 0.375rem; color: var(--text-primary); padding: 0.25rem 0.5rem; font-size: 0.8rem; outline: none; cursor: pointer; margin-right: 0.25rem;">
+                                    <option value="value" selected>Vis: Porteføljeværdi (DKK)</option>
+                                    <option value="simple">Vis: Simpelt afkast (%)</option>
+                                    <option value="twr">Vis: Tidsvægtet afkast (TWR %)</option>
+                                    <option value="drawdown">Vis: Portefølje drawdown (%)</option>
+                                    <option value="monthly">Vis: Månedligt afkast (%)</option>
+                                </select>
+                                <div class="chart-filters" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                                    <button class="btn-filter" id="btn-filter-ytd" onclick="filterGrowthRange('ytd')">YTD</button>
+                                    <button class="btn-filter" id="btn-filter-mtd" onclick="filterGrowthRange('mtd')">MTD</button>
+                                    <button class="btn-filter" id="btn-filter-all" onclick="filterGrowthRange('all')">Maks</button>
+                                    <button class="btn-filter" id="btn-filter-1y" onclick="filterGrowthRange('1y')">1 år</button>
+                                    <button class="btn-filter" id="btn-filter-6m" onclick="filterGrowthRange('6m')">6 mdr</button>
+                                    <button class="btn-filter" id="btn-filter-1m" onclick="filterGrowthRange('1m')">1 mdr</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="chart-body">
+                            <canvas id="growthChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Unified Porteføljefordeling & Afkastsrapportkort (Alle circlediagrammer + tal i én boks!) -->
+                    <div class="chart-card card allocation-card" style="display: flex; flex-direction: column; padding: 0.75rem;">
+                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.4rem;">
+                            <div>
+                                <h3>Porteføljefordeling</h3>
+                                <p class="card-subtitle" id="period-dates-subtitle" style="font-size: 0.75rem; margin-top: 0.15rem;">Siden start</p>
+                            </div>
+                            <div id="allocation-mini-legend" style="font-size: 0.7rem; color: var(--text-muted); display: flex; flex-direction: column; gap: 0.15rem; align-items: flex-end;">
+                                <!-- Dynamisk legend -->
+                            </div>
+                        </div>
+                        
+                        <!-- Cirkeldiagram (Nu med overskrevet min-height for at fjerne alt unødvendigt tomrum!) -->
+                        <div class="chart-body" style="position: relative; height: 180px; min-height: auto; width: 100%; margin-bottom: 0.4rem; flex: none;">
+                            <canvas id="allocationChart" width="180" height="180" style="display: block; width: 180px; height: 180px; max-width: 100%; margin: 0 auto;"></canvas>
+                        </div>
+
+                        <!-- Real-time Periodens afkast metrics i bunden af samme boks! -->
+                        <div class="report-metrics" style="border-top: 1px solid var(--border-color); padding-top: 0.75rem; font-size: 0.775rem; display: flex; flex-direction: column; gap: 0.35rem; flex: 1; justify-content: space-between;">
+                            <div class="metric-row" style="display: flex; justify-content: space-between;">
+                                <span id="period-start-date-lbl">Startværdi</span>
+                                <span class="metric-val" id="period-start-val">0,00 DKK</span>
+                            </div>
+                            <div class="metric-row" style="display: flex; justify-content: space-between;">
+                                <span id="period-end-date-lbl">Slutværdi</span>
+                                <span class="metric-val" id="period-end-val">0,00 DKK</span>
+                            </div>
+                            <div class="metric-row" style="display: flex; justify-content: space-between;">
+                                <span>Nettoindbetalinger</span>
+                                <span class="metric-val" id="period-net-deposits">0,00 DKK</span>
+                            </div>
+                            <hr style="border-color: #334155; margin: 0.2rem 0; border-style: dashed; border-width: 1px 0 0 0;">
+                            <div class="metric-row highlight" style="display: flex; justify-content: space-between; font-weight: 700; color: var(--text-primary);">
+                                <span>Periodens afkast</span>
+                                <span class="metric-val" id="period-return-dkk">0,00 DKK</span>
+                            </div>
+                            <div class="metric-row highlight" style="display: flex; justify-content: space-between; font-weight: 700; color: var(--text-primary);">
+                                <span>Procentuelt afkast</span>
+                                <span class="metric-val" id="period-return-pct">0,00%</span>
+                            </div>
+                            <hr style="border-color: #334155; margin: 0.2rem 0; border-style: dashed; border-width: 1px 0 0 0;">
+                            <div class="metric-row sub-metric" style="display: flex; justify-content: space-between; font-size: 0.725rem; color: var(--text-muted);">
+                                <span>Udbetalt udbytte</span>
+                                <span class="metric-val text-positive" id="period-dividends">0,00 DKK</span>
+                            </div>
+                            <div class="metric-row sub-metric" style="display: flex; justify-content: space-between; font-size: 0.725rem; color: var(--text-muted);">
+                                <span>Betalt kildeskat</span>
+                                <span class="metric-val text-negative" id="period-taxes">0,00 DKK</span>
+                            </div>
+                            <div class="metric-row sub-metric" style="display: flex; justify-content: space-between; font-size: 0.725rem; color: var(--text-muted);">
+                                <span>Kurtage & omkostninger</span>
+                                <span class="metric-val text-negative" id="period-fees">0,00 DKK</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Anden række: Fuld-bredde Holdings-tabel (Masser af plads til de 10 kolonner!) -->
+                <div style="width: 100%; margin-top: 0.5rem;">
+                    <div class="card holdings-card" style="width: 100%; padding: 1.5rem;">
+                        <div class="card-header" style="margin-bottom: 1rem;">
+                            <h3>Aktive værdipapirbeholdninger</h3>
+                            <p class="card-subtitle">Anskaffet baseret på AVCO gennemsnitsmetoden</p>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table" id="holdings-table">
+                                <thead>
+                                    <tr>
+                                        <th>Ticker</th>
+                                        <th>Navn</th>
+                                        <th>Type</th>
+                                        <th class="text-right">Antal</th>
+                                        <th class="text-right">Anskaffelseskurs</th>
+                                        <th class="text-right">Anskaffelsesværdi</th>
+                                        <th class="text-right">Aktuel kurs</th>
+                                        <th class="text-right">Markedsværdi</th>
+                                        <th class="text-right">Urealiseret afkast</th>
+                                        <th class="text-right">Vægt</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Populeret af JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tab 2: Aktiver & Priser (Asset Management) -->
+        <section id="tab-assets" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Konfigurer klassifikationer, priser og valutaer</h3>
+                    <p class="card-subtitle">Ændringer gemt her opdaterer dashboardets nøgletal og beregninger med det samme.</p>
+                </div>
+                <div class="asset-editor-container">
+                    <div style="background-color: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 0.5rem; padding: 0.75rem 1.25rem; margin-bottom: 1.5rem; font-size: 0.85rem; color: #bae6fd; line-height: 1.4;">
+                        <strong>Manuel priskonsol:</strong> Priserne pre-populeret ved import repræsenterer <strong>historiske handelspriser</strong> fra din CSV. For at se din <strong>aktuelle realtidsporteføljeværdi og faktiske gevinster</strong>, indtast de <strong>aktuelle kurser for dine aktiver i dag</strong> under kolonnen "Aktuel kurs", vælg deres handelsvaluta og klik på "Gem ændringer".
+                    </div>
+                    <form id="metadata-form" onsubmit="handleMetadataSave(event)">
+                        <div class="table-responsive">
+                            <table class="data-table" id="metadata-editor-table">
+                                <thead>
+                                    <tr>
+                                        <th>ISIN</th>
+                                        <th>Ticker</th>
+                                        <th>Beskrivelse</th>
+                                        <th>Type</th>
+                                        <th class="text-right" style="color: var(--text-muted);">Sidste handelskurs (CSV)</th>
+                                        <th class="text-right">Aktuel kurs</th>
+                                        <th>Handelsvaluta</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Populeret dynamisk af JS -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Valutakurser sub-sektion -->
+                        <div class="rates-section">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+                                <div>
+                                    <h4 style="margin: 0; display: inline-block; vertical-align: middle;">Valutakurser (mod DKK)</h4>
+                                    <span id="api-status-dot" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #64748b; margin-left: 0.5rem; vertical-align: middle; box-shadow: 0 0 6px #64748b;" title="API-forbindelse status: Ukendt"></span>
+                                    <span id="api-status-text" style="font-size: 0.7rem; color: var(--text-muted); margin-left: 0.25rem; font-weight: 500; vertical-align: middle;">API-forbindelse: Kontrollerer...</span>
+                                    <p class="card-subtitle" style="margin: 0.25rem 0 0 0;">Disse omregner udenlandske aktivpriser til din basisvaluta DKK på dit dashboard.</p>
+                                </div>
+                                <button type="button" class="btn btn-primary btn-sm" onclick="fetchLiveRates(event)" id="btn-fetch-rates" style="cursor: pointer; padding: 0.35rem 0.75rem; font-size: 0.75rem; border-radius: 0.375rem;">Hent live-kurser</button>
+                            </div>
+
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; background-color: rgba(30, 41, 59, 0.4); padding: 0.75rem 1rem; border-radius: 0.375rem; border: 1px solid var(--border-color);">
+                                <input type="checkbox" id="setting-auto-fetch" onchange="toggleAutoFetchSetting()" style="width: 1rem; height: 1rem; cursor: pointer; margin: 0;">
+                                <label for="setting-auto-fetch" style="font-size: 0.85rem; font-weight: 600; cursor: pointer; color: var(--text-primary); margin: 0;">Hent og overskriv automatisk med live-kurser ved indlæsning</label>
+                            </div>
+
+                            <div id="warning-auto-fetch" style="background-color: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 0.375rem; padding: 0.75rem 1rem; margin-bottom: 1rem; font-size: 0.8rem; color: #fde047; line-height: 1.4; display: none;">
+                                <strong>Bemærk:</strong> Når automatisk hentning er aktiveret, vil alle manuelle justeringer af disse kurser automatisk blive overskrevet af live-markedskurser fra Frankfurter (ECB), hver gang dashboardet indlæses.
+                            </div>
+
+                            <div class="rates-grid" id="rates-grid-container">
+                                <!-- Populeret dynamisk af JS -->
+                            </div>
+                        </div>
+
+                        <!-- Omdøbning af konti sub-sektion -->
+                        <div class="renaming-section" style="border-top: 1px solid var(--border-color); padding-top: 1.5rem; margin-top: 1.5rem;">
+                            <h4>Omdøbning og labels for konti</h4>
+                            <p class="card-subtitle" style="margin-bottom: 1rem;">Omdøb kontonumre til beskrivende navne (f.eks. "Aktiesparekonto (ASK)").</p>
+                            <div class="rates-grid" id="accounts-renaming-container">
+                                <!-- Populeret dynamisk af JS -->
+                            </div>
+                        </div>
+
+                        <div class="editor-actions">
+                            <button type="submit" class="btn btn-primary">Gem ændringer</button>
+                            <span id="metadata-status" class="alert-inline hidden"></span>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tab 3: Transaktioner (Transactions) -->
+        <section id="tab-transactions" class="tab-content">
+            <div class="card">
+                <div class="card-header flex-header">
+                    <div>
+                        <h3>Alle importerede transaktionslogfiler</h3>
+                        <p class="card-subtitle">Porteføljens samlede kronologiske transaktionshistorik</p>
+                    </div>
+                    <div class="search-filter">
+                        <input type="text" id="tx-search-input" oninput="filterTransactionsTable()" placeholder="Søg i transaktioner...">
+                    </div>
+                </div>
+                <div class="table-responsive max-height-table">
+                    <table class="data-table" id="transactions-ledger-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Bogf. dato</th>
+                                <th>Handelsdato</th>
+                                <th>Konto</th>
+                                <th>Type</th>
+                                <th>Papir</th>
+                                <th>ISIN</th>
+                                <th class="text-right">Antal</th>
+                                <th class="text-right">Kurs</th>
+                                <th class="text-right">Beløb</th>
+                                <th class="text-right">Saldo</th>
+                                <th>Tekst</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Populeret dynamisk af JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="app-footer" style="display: flex; align-items: center; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
+        <p>NordFolio &copy; 2026 <a href="https://donkey.dk" target="_blank" style="color: var(--primary); text-decoration: none; font-weight: 600;">donkey.dk</a></p>
+        <span style="color: var(--border-color); font-size: 0.8rem; margin: 0 0.15rem;">•</span>
+        <a href="https://github.com/baqqer/NordFolio" target="_blank" style="color: var(--text-muted); text-decoration: none; font-weight: 500; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem; transition: var(--transition);" onmouseover="this.style.color='''var(--primary)'''" onmouseout="this.style.color='''var(--text-muted)'''">
+            <svg height="16" width="16" viewBox="0 0 16 16" style="fill: currentColor; display: inline-block;">
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
+            </svg>
+            <span>baqqer/NordFolio</span>
+        </a>
+    </footer>
+
+    <script src="app.js?v=1.0.1"></script>
+</body>
+</html>

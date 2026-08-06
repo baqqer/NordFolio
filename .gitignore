@@ -1,0 +1,11 @@
+# Compiled Go binary
+nordnet-analyzer
+
+# Local active database (contains private transaction records)
+db.json
+
+# Workspace instructions (ignored as requested)
+GEMINI.md
+
+# OS specific files
+.DS_Store
