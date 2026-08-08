@@ -20,25 +20,24 @@ Al din transaktionshistorik og dine personlige indstillinger gemmes **lokalt i e
 
 1. **Robust parser til Nordnets CSV-eksport**:
    - Detekterer automatisk om filen er encodet i **UTF-8** eller **WINDOWS-1252**.
-   - Håndterer tab-separerede filer med europæiske/danske talformater (komma som decimalseparator).
+   - Håndterer tab-separerede filer med europæiske/danske talformater med komma som decimalseparator.
 2. **Beskyttelse mod dubletter**:
-   - Springer automatisk allerede importerede linjer over ved hjælp af Nordnets unikke transaktions-ID'er. Du kan derfor trygt uploade overlappende eksportfiler.
+   - Springer automatisk allerede importerede linjer over ved hjælp af de unikke transaktions-ID'er, så du kan uploade overlappende eksportfiler.
 3. **Avanceret visualisering af din portefølje**:
-   - **Porteføljeværdi (DKK)**: Rekonstruerer en daglig tidslinje over din porteføljeværdi opdelt på aktier/fonde, ETF'er og kontanter, og viser den sammenholdt med din investerede kapital.
+   - **Porteføljeværdi (DKK)**: Rekonstruerer din porteføljeværdi opdelt på aktier/fonde, ETF'er og kontanter og viser den sammenholdt med din investerede kapital.
    - **Simpelt afkast (%)**: Viser dit kumulative afkast over tid, overlejret med et simuleret MSCI World-indeks (8% p.a.) som benchmark.
-   - **Tidsvægtet afkast (TWR %)**: Viser dit tidsvægtede afkast (den institutionelle standard), som fjerner effekten af dine ind- og udbetalinger, overlejret med MSCI World som benchmark.
+   - **Tidsvægtet afkast (TWR %)**: Viser dit tidsvægtede afkast og fjerner effekten af dine ind- og udbetalinger, overlejret med MSCI World som benchmark.
    - **Portfolio Drawdown (%)**: Beregner dit maksimale værditab (peak-to-trough) over tid, så du kan visualisere din reelle risikoprofil og volatilitet.
-   - **Månedligt afkast (%)**: Konverterer øjeblikkeligt tidslinjen til et farvekodet søjlediagram (grøn for overskud, rød for fald) grupperet pr. kalendermåned.
+   - **Månedligt afkast (%)**: Konverterer dine transaktioner til et farvekodet søjlediagram grupperet pr. kalendermåned.
    - Hurtige tidsfiltre: **1 måned, 6 måneder, 1 år, YTD, MTD eller Maks (altid)**.
 4. **Automatisk valutadetektering & Live FX-kurser**:
    - Finder og registrerer automatisk nye valutaer (USD, EUR, SEK, NOK, GBP osv.) ved CSV-import.
-   - Henter automatisk live-valutakurser via en sikker backend-proxy (Frankfurter API med automatisk fallback to ExchangeRate-API). Løsningen kører fuldstændig uden om browserens adblockere (adblocker-proof same-origin proxy).
-   - Viser visuelle indikatorer for valutaudsving i realtid i forhold til dine gemte kurser.
+   - Henter automatisk live-valutakurser via Frankfurter API med automatisk fallback to ExchangeRate-API.
 5. **Interaktiv styring af aktiver**:
    - Rediger tickersymboler og giv dine aktiver beskrivende navne.
    - Klassificer dine aktiver som aktier/fonde eller ETF'er (kontantbeholdningen beregnes automatisk).
    - Indtast manuelle priser (realtidskurser) og vælg handelsvaluta.
-   - Giv dine forskellige Nordnet-depoter/konti beskrivende navne (f.eks. "Aktiesparekonto").
+   - Giv dine forskellige Nordnet-depoter/konti beskrivende navne (fx "Aktiesparekonto").
 6. **Detaljeret transaktionslog**:
    - Gennemse hele din samlede transaktionshistorik med en lynhurtig, lokal søgefunktion.
 
@@ -47,7 +46,7 @@ Al din transaktionshistorik og dine personlige indstillinger gemmes **lokalt i e
 ## Teknologier & Arkitektur
 
 - **Backend**: Skrevet i Go  og bruger udelukkende standardbiblioteket `net/http` til routing, en simpel og trådsikker JSON-database samt backend-proxy til valutakurser).
-- **Frontend**: En ren Single Page Application (SPA) bygget med **semantisk HTML5**, **Vanilla CSS3** og **Chart.js hentet via CDN** til interaktive grafer. Ingen tunge frameworks eller lignende.
+- **Frontend**: En ren Single Page Application (SPA) bygget med **semantisk HTML5**, **Vanilla CSS3** og **Chart.js hentet via CDN** til interaktive grafer. Ingen tunge frameworks.
 
 ---
 
