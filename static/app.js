@@ -776,7 +776,7 @@ function renderCharts() {
     // Update total value in the card's subtitle dynamically
     const subtitle = document.querySelector('.allocation-card .card-subtitle');
     if (subtitle) {
-        subtitle.textContent = totalVal > 0 ? `Samlet værdi: ${formatCurrency(totalVal)}` : 'Aktuel markedsværdi fordelt på aktiver';
+        subtitle.textContent = totalVal > 0 ? `Samlet bogført værdi: ${formatCurrency(totalVal)}` : 'Aktuel bogført værdi fordelt på aktiver';
     }
 
     // Update custom HTML mini-legend next to the chart inside the top banner card
@@ -1163,6 +1163,20 @@ async function confirmResetDB() {
 
         alert('Databasen er blevet tømt med succes!');
         
+        // Hide and clear previous upload status
+        const uploadStatus = document.getElementById('upload-status');
+        if (uploadStatus) {
+            uploadStatus.classList.add('hidden');
+            uploadStatus.innerHTML = '';
+        }
+
+        // Reset file input and label
+        const fileInput = document.getElementById('csv-file-input');
+        if (fileInput) {
+            fileInput.value = '';
+        }
+        updateFileLabel();
+
         // Reload and switch back to dashboard tab
         portfolioData = null;
         transactionList = null;
