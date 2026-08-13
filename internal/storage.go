@@ -36,6 +36,7 @@ func NewStorage(filePath string) (*Storage, error) {
 					"USD": 6.90,
 				},
 				AccountNames:     make(map[string]string),
+				AutoFetchRates:   true,
 			}
 			err = s.save()
 			if err != nil {

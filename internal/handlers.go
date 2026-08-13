@@ -184,6 +184,7 @@ func (s *Server) ResetDatabase(w http.ResponseWriter, r *http.Request) {
 			"USD": 6.90,
 		},
 		AccountNames:     make(map[string]string),
+		AutoFetchRates:   true,
 	}
 	err := s.storage.save()
 	s.storage.mu.Unlock()
