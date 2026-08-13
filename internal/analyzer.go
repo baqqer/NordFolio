@@ -78,6 +78,26 @@ func IsInternalTransfer(tx Transaction, visibleAccounts map[string]bool) bool {
 	return false
 }
 
+func IsStockInflow(txType string) bool {
+	tt := strings.ToUpper(strings.TrimSpace(txType))
+	return tt == "KØBT" || 
+		tt == "INDSÆTTELSE" || 
+		strings.HasPrefix(tt, "BYTTE INDLÆG") || 
+		strings.HasPrefix(tt, "INDLÆG") || 
+		strings.HasPrefix(tt, "FUSION INDLÆG") || 
+		strings.HasPrefix(tt, "SPLIT INDLÆG")
+}
+
+func IsStockOutflow(txType string) bool {
+	tt := strings.ToUpper(strings.TrimSpace(txType))
+	return tt == "SOLGT" || 
+		tt == "HÆVNING" || 
+		strings.HasPrefix(tt, "BYTTE OVERF") || 
+		strings.HasPrefix(tt, "INDLØSNING OVERF") || 
+		strings.HasPrefix(tt, "FUSION OVERF") || 
+		strings.HasPrefix(tt, "SPLIT OVERF")
+}
+
 // IsExternalCashFlow determines if a transaction is an external deposit or withdrawal
 func IsExternalCashFlow(tx Transaction, visibleAccounts map[string]bool) bool {
 	if IsInternalTransfer(tx, visibleAccounts) {
@@ -188,9 +208,9 @@ func AnalyzePortfolio(db AppDatabase, visibleAccounts map[string]bool) (Portfoli
 			tt := strings.ToUpper(tx.TransactionType)
 			preQty := 0.0
 
-			if tt == "KØBT" || tt == "INDSÆTTELSE" {
+			if IsStockInflow(tt) {
 				preQty = tx.TotalQuantity - qty
-			} else if tt == "SOLGT" || tt == "HÆVNING" {
+			} else if IsStockOutflow(tt) {
 				preQty = tx.TotalQuantity + qty
 			}
 
@@ -356,7 +376,7 @@ func AnalyzePortfolio(db AppDatabase, visibleAccounts map[string]bool) (Portfoli
 						currQty := securityHoldings[tx.ISIN]
 						currBook := bookValues[tx.ISIN]
 
-						if tt == "KØBT" || tt == "INDSÆTTELSE" {
+						if IsStockInflow(tt) {
 							// Inflow
 							securityHoldings[tx.ISIN] = currQty + qty
 							
@@ -379,7 +399,7 @@ func AnalyzePortfolio(db AppDatabase, visibleAccounts map[string]bool) (Portfoli
 							if tx.Price > 0 {
 								lastPrices[tx.ISIN] = tx.Price
 							}
-						} else if tt == "SOLGT" || tt == "HÆVNING" {
+						} else if IsStockOutflow(tt) {
 							// Outflow
 							newQty := currQty - qty
 							if newQty < 0.00001 {
