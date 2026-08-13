@@ -167,7 +167,7 @@ function updateKPICards(analysis) {
     const gainColor = analysis.total_gain_loss_dkk >= 0 ? 'var(--text-positive)' : 'var(--text-negative)';
     const gainLossEl = document.getElementById('kpi-gain-loss');
     if (gainLossEl) {
-        gainLossEl.textContent = `Afkast: ${gainSign}${formatCurrency(analysis.total_gain_loss_dkk)} (${gainSign}${analysis.total_gain_loss_pct.toFixed(2)}%)`;
+        gainLossEl.textContent = `Realiseret afkast: ${gainSign}${formatCurrency(analysis.total_gain_loss_dkk)} (${gainSign}${analysis.total_gain_loss_pct.toFixed(2)}%)`;
         gainLossEl.style.color = gainColor;
     }
 
@@ -315,31 +315,25 @@ function renderHoldingsTable(assets) {
     tbody.innerHTML = '';
 
     if (!assets || assets.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="10" class="no-data-msg">Ingen aktive værdipapirbeholdninger i din portefølje.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" class="no-data-msg">Ingen aktive værdipapirbeholdninger i din portefølje.</td></tr>`;
         return;
     }
 
     assets.forEach(asset => {
         const isCash = asset.type === 'Cash';
-        const gainLossClass = asset.gain_loss_dkk >= 0 ? 'text-positive' : 'text-negative';
-        const gainLossSign = asset.gain_loss_dkk >= 0 ? '+' : '';
-
         const badgeClass = asset.type === 'ETF' ? 'badge-etf' : (isCash ? 'badge-cash' : 'badge-security');
         const dispType = asset.type === 'ETF' ? "ETF" : (isCash ? "Kontanter" : "Værdipapir");
 
         const row = document.createElement('tr');
         row.innerHTML = `
-            <td><strong>${asset.name || asset.symbol}</strong></td>
-            <td><code>${asset.isin}</code></td>
-            <td><code>${asset.symbol || '-'}</code></td>
-            <td><span class="asset-badge ${badgeClass}">${dispType}</span></td>
-            <td>${isCash ? '-' : formatFloat(asset.quantity)}</td>
-            <td class="text-right">${isCash ? '-' : formatCurrency(asset.book_value_dkk)}</td>
-            <td class="text-right">${isCash ? '-' : formatCurrency(asset.current_price, asset.currency)}</td>
-            <td class="text-right"><strong>${formatCurrency(asset.value_dkk)}</strong></td>
-            <td class="text-right ${gainLossClass}">
-                ${isCash ? '0,00 DKK' : `${gainLossSign}${formatCurrency(asset.gain_loss_dkk)}<br/><small>${gainLossSign}${asset.gain_loss_pct.toFixed(2)}%</small>`}
+            <td>
+                <strong>${asset.name || asset.symbol || asset.isin}</strong><br/>
+                <small class="text-muted" style="font-size: 0.725rem;">${asset.symbol ? asset.symbol + ' • ' : ''}${asset.isin}</small>
             </td>
+            <td><span class="asset-badge ${badgeClass}">${dispType}</span></td>
+            <td class="text-right">${isCash ? '-' : formatFloat(asset.quantity)}</td>
+            <td class="text-right">${isCash ? '-' : formatCurrency(asset.current_price, asset.currency)}</td>
+            <td class="text-right">${isCash ? '-' : formatCurrency(asset.book_value_dkk)}</td>
             <td class="text-right"><strong>${asset.percentage.toFixed(2)}%</strong></td>
         `;
         tbody.appendChild(row);
@@ -895,15 +889,14 @@ function renderMetadataEditor() {
         const symbol = db.asset_symbols[isin] || '';
         const name = db.asset_names[isin] || symbol || isin;
         const type = db.classifications[isin] || 'Security';
-        const price = db.manual_prices[isin] || 0;
         const currency = db.manual_currencies[isin] || 'DKK';
 
-        // Find last transacted price from processed ledger
+        // Find average unit cost from processed ledger
         const assetAnalysis = portfolioData.analysis && portfolioData.analysis.assets 
             ? portfolioData.analysis.assets.find(a => a.isin === isin) 
             : null;
-        const lastTxPrice = assetAnalysis ? assetAnalysis.last_tx_price : 0;
-        const lastTxFormatted = lastTxPrice > 0 ? formatCurrency(lastTxPrice, currency) : '-';
+        const avgUnitCost = assetAnalysis ? assetAnalysis.current_price : 0;
+        const avgUnitCostFormatted = avgUnitCost > 0 ? formatCurrency(avgUnitCost, currency) : '-';
 
         const row = document.createElement('tr');
         row.innerHTML = `
@@ -921,10 +914,7 @@ function renderMetadataEditor() {
                 </select>
             </td>
             <td class="text-right" style="font-weight: 600; color: var(--text-muted); padding-top: 1.35rem;">
-                ${lastTxFormatted}
-            </td>
-            <td>
-                <input type="number" step="any" name="price-${isin}" value="${price || ''}" class="text-right" placeholder="0.00">
+                ${avgUnitCostFormatted}
             </td>
             <td>
                 <select name="currency-${isin}">
@@ -1039,8 +1029,7 @@ async function handleMetadataSave(e) {
         const classVal = form.querySelector(`[name="class-${isin}"]`).value;
         classifications[isin] = classVal;
 
-        const priceVal = parseFloat(form.querySelector(`[name="price-${isin}"]`).value);
-        manual_prices[isin] = isNaN(priceVal) ? 0 : priceVal;
+        manual_prices[isin] = portfolioData.db.manual_prices[isin] || 0;
 
         const currVal = form.querySelector(`[name="currency-${isin}"]`).value;
         manual_currencies[isin] = currVal;

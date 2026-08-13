@@ -130,33 +130,33 @@ func TestAnalyzePortfolio(t *testing.T) {
 		t.Fatalf("Failed to analyze portfolio: %v", err)
 	}
 
-	// Verify current totals
+	// Verify current totals (Strictly Realized Return Model: securities held at cost basis)
 	// Cash = 8975 DKK
-	// Security market value = 10 shares * 110 = 1100 DKK
-	// Total portfolio value = 10075 DKK
+	// Security book value = 1025 DKK (since 25 DKK acquisition fee is capitalized into cost basis)
+	// Total portfolio value = 10000 DKK
 	if analysis.TotalCashDKK != 8975 {
 		t.Errorf("Expected TotalCashDKK 8975, got %f", analysis.TotalCashDKK)
 	}
-	if analysis.TotalSecuritiesDKK != 1100 {
-		t.Errorf("Expected TotalSecuritiesDKK 1100, got %f", analysis.TotalSecuritiesDKK)
+	if analysis.TotalSecuritiesDKK != 1025 {
+		t.Errorf("Expected TotalSecuritiesDKK 1025, got %f", analysis.TotalSecuritiesDKK)
 	}
-	if analysis.TotalValueDKK != 10075 {
-		t.Errorf("Expected TotalValueDKK 10075, got %f", analysis.TotalValueDKK)
+	if analysis.TotalValueDKK != 10000 {
+		t.Errorf("Expected TotalValueDKK 10000, got %f", analysis.TotalValueDKK)
 	}
 
 	// Invested capital is 10000 (from INDBETALING)
-	// Gain/Loss = 10075 - 10000 = 75 DKK
-	// Gain/Loss % = 75 / 10000 * 100 = 0.75%
-	if analysis.TotalGainLossDKK != 75 {
-		t.Errorf("Expected TotalGainLossDKK 75, got %f", analysis.TotalGainLossDKK)
+	// Realized Gain/Loss = 10000 - 10000 = 0 DKK (the fee is capitalized, no sales have occurred yet)
+	// Realized Gain/Loss % = 0%
+	if analysis.TotalGainLossDKK != 0 {
+		t.Errorf("Expected TotalGainLossDKK 0, got %f", analysis.TotalGainLossDKK)
 	}
-	if analysis.TotalGainLossPct != 0.75 {
-		t.Errorf("Expected TotalGainLossPct 0.75, got %f", analysis.TotalGainLossPct)
+	if analysis.TotalGainLossPct != 0 {
+		t.Errorf("Expected TotalGainLossPct 0, got %f", analysis.TotalGainLossPct)
 	}
 
 	// Verify timeline series
 	// 2026-01-01 should have cash = 10000, securities = 0, total = 10000, invested = 10000
-	// 2026-01-02 should have cash = 8975, securities = 10 * 100 = 1000, total = 9975, invested = 10000
+	// 2026-01-02 should have cash = 8975, securities = 1025, total = 10000, invested = 10000
 	if len(analysis.Dates) < 2 {
 		t.Fatalf("Expected at least 2 date data points, got %d", len(analysis.Dates))
 	}
@@ -179,10 +179,10 @@ func TestAnalyzePortfolio(t *testing.T) {
 	if analysis.CashSeries[1] != 8975 {
 		t.Errorf("Expected day 2 cash 8975, got %f", analysis.CashSeries[1])
 	}
-	if analysis.SecuritiesSeries[1] != 1000 {
-		t.Errorf("Expected day 2 securities 1000, got %f", analysis.SecuritiesSeries[1])
+	if analysis.SecuritiesSeries[1] != 1025 {
+		t.Errorf("Expected day 2 securities 1025, got %f", analysis.SecuritiesSeries[1])
 	}
-	if analysis.TotalSeries[1] != 9975 {
-		t.Errorf("Expected day 2 total 9975, got %f", analysis.TotalSeries[1])
+	if analysis.TotalSeries[1] != 10000 {
+		t.Errorf("Expected day 2 total 10000, got %f", analysis.TotalSeries[1])
 	}
 }

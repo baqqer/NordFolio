@@ -75,9 +75,9 @@
                 <!-- KPI-kort række (Placeret øverst!) -->
                 <div class="kpi-grid">
                     <div class="kpi-card card" id="kpi-total-val">
-                        <h3>Samlet porteføljeværdi</h3>
+                        <h3>Samlet bogført værdi</h3>
                         <div class="kpi-value">0,00 DKK</div>
-                        <div class="kpi-sub" id="kpi-gain-loss">Afkast: 0,00 DKK (0,00%)</div>
+                        <div class="kpi-sub" id="kpi-gain-loss">Realiseret afkast: 0,00 DKK (0,00%)</div>
                     </div>
                     <div class="kpi-card card" id="kpi-securities-val">
                         <h3>Værdipapirer (Aktier/fonde)</h3>
@@ -103,11 +103,11 @@
                             <h3>Porteføljens udvikling over tid</h3>
                             <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                                 <select id="growth-metric-select" onchange="changeGrowthMetric()" style="background-color: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); border-radius: 0.375rem; color: var(--text-primary); padding: 0.25rem 0.5rem; font-size: 0.8rem; outline: none; cursor: pointer; margin-right: 0.25rem;">
-                                    <option value="value" selected>Vis: Porteføljeværdi (DKK)</option>
-                                    <option value="simple">Vis: Simpelt afkast (%)</option>
-                                    <option value="twr">Vis: Tidsvægtet afkast (TWR %)</option>
-                                    <option value="drawdown">Vis: Portefølje drawdown (%)</option>
-                                    <option value="monthly">Vis: Månedligt afkast (%)</option>
+                                    <option value="value" selected>Vis: Bogført porteføljeværdi (DKK)</option>
+                                    <option value="simple">Vis: Realiseret afkast (%)</option>
+                                    <option value="twr">Vis: Realiseret TWR (%)</option>
+                                    <option value="drawdown">Vis: Drawdown på bogført værdi (%)</option>
+                                    <option value="monthly">Vis: Månedligt realiseret afkast (%)</option>
                                 </select>
                                 <div class="chart-filters" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                                     <button class="btn-filter" id="btn-filter-ytd" onclick="filterGrowthRange('ytd')">YTD</button>
@@ -192,16 +192,12 @@
                             <table class="data-table" id="holdings-table">
                                 <thead>
                                     <tr>
-                                        <th>Ticker</th>
-                                        <th>Navn</th>
+                                        <th>Navn / Ticker</th>
                                         <th>Type</th>
                                         <th class="text-right">Antal</th>
-                                        <th class="text-right">Anskaffelseskurs</th>
-                                        <th class="text-right">Anskaffelsesværdi</th>
-                                        <th class="text-right">Aktuel kurs</th>
-                                        <th class="text-right">Markedsværdi</th>
-                                        <th class="text-right">Urealiseret afkast</th>
-                                        <th class="text-right">Vægt</th>
+                                        <th class="text-right">Gns. anskaffelseskurs</th>
+                                        <th class="text-right">Anskaffelsesværdi / Bogført værdi (DKK)</th>
+                                        <th class="text-right">Porteføljevægt</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -218,12 +214,12 @@
         <section id="tab-assets" class="tab-content">
             <div class="card">
                 <div class="card-header">
-                    <h3>Konfigurer klassifikationer, priser og valutaer</h3>
-                    <p class="card-subtitle">Ændringer gemt her opdaterer dashboardets nøgletal og beregninger med det samme.</p>
+                    <h3>Konfigurer klassifikationer og valutaer</h3>
+                    <p class="card-subtitle">Ændringer gemt her opdaterer dashboardets klassifikationer og beregninger med det samme.</p>
                 </div>
                 <div class="asset-editor-container">
                     <div style="background-color: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 0.5rem; padding: 0.75rem 1.25rem; margin-bottom: 1.5rem; font-size: 0.85rem; color: #bae6fd; line-height: 1.4;">
-                        <strong>Manuel priskonsol:</strong> Priserne pre-populeret ved import repræsenterer <strong>historiske handelspriser</strong> fra din CSV. For at se din <strong>aktuelle realtidsporteføljeværdi og faktiske gevinster</strong>, indtast de <strong>aktuelle kurser for dine aktiver i dag</strong> under kolonnen "Aktuel kurs", vælg deres handelsvaluta og klik på "Gem ændringer".
+                        <strong>Klassifikation og valuta:</strong> Du kan ændre og tilpasse dine værdipapirers navne, deres type (Værdipapir vs. ETF) og deres handelsvaluta her. Porteføljen beregnes og visualiseres med 100% realiserede afkast (salg, udbytte og omkostninger).
                     </div>
                     <form id="metadata-form" onsubmit="handleMetadataSave(event)">
                         <div class="table-responsive">
@@ -234,8 +230,7 @@
                                         <th>Ticker</th>
                                         <th>Beskrivelse</th>
                                         <th>Type</th>
-                                        <th class="text-right" style="color: var(--text-muted);">Sidste handelskurs (CSV)</th>
-                                        <th class="text-right">Aktuel kurs</th>
+                                        <th class="text-right" style="color: var(--text-muted);">Gns. anskaffelseskurs</th>
                                         <th>Handelsvaluta</th>
                                     </tr>
                                 </thead>

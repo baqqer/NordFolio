@@ -411,29 +411,12 @@ func AnalyzePortfolio(db AppDatabase, visibleAccounts map[string]bool) (Portfoli
 
 		for isin, qty := range securityHoldings {
 			if qty > 0 {
-				price := lastPrices[isin]
-				if price == 0 {
-					price = db.ManualPrices[isin]
-				}
-
-				rate := lastRates[isin]
-				if rate == 0 {
-					currency := db.ManualCurrencies[isin]
-					if currency == "" {
-						currency = "DKK"
-					}
-					rate = db.ExchangeRates[currency]
-				}
-				if rate == 0 {
-					rate = 1.0
-				}
-
-				valueDKK := qty * price * rate
+				bookValue := bookValues[isin]
 				class := db.Classifications[isin]
 				if class == AssetClassETF {
-					dayETFs += valueDKK
+					dayETFs += bookValue
 				} else {
-					daySecurities += valueDKK
+					daySecurities += bookValue
 				}
 			}
 		}
@@ -517,11 +500,6 @@ func AnalyzePortfolio(db AppDatabase, visibleAccounts map[string]bool) (Portfoli
 				class = AssetClassSecurity
 			}
 
-			price := db.ManualPrices[isin]
-			if price == 0 {
-				price = lastPrices[isin]
-			}
-
 			currency := db.ManualCurrencies[isin]
 			if currency == "" {
 				currency = "DKK"
@@ -535,14 +513,17 @@ func AnalyzePortfolio(db AppDatabase, visibleAccounts map[string]bool) (Portfoli
 				rate = 1.0
 			}
 
-			valueDKK := qty * price * rate
 			bookValue := bookValues[isin]
+			valueDKK := bookValue
 
-			gainLoss := valueDKK - bookValue
-			gainLossPct := 0.0
-			if bookValue > 0 {
-				gainLossPct = (gainLoss / bookValue) * 100.0
+			// Average cost price per share in native currency
+			price := 0.0
+			if qty > 0 {
+				price = (bookValue / qty) / rate
 			}
+
+			gainLoss := 0.0
+			gainLossPct := 0.0
 
 			if class == AssetClassETF {
 				totalETFsDKK += valueDKK
