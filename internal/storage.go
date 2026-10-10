@@ -3,280 +3,153 @@ package internal
 import (
 	"encoding/json"
 	"errors"
-	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 )
 
+// Storage is a concurrency-safe JSON file database.
 type Storage struct {
 	filePath string
 	mu       sync.RWMutex
-	db       AppDatabase
+	db       Database
 }
 
 func NewStorage(filePath string) (*Storage, error) {
-	s := &Storage{
-		filePath: filePath,
+	s := &Storage{filePath: filePath, db: newDatabase()}
+
+	data, err := os.ReadFile(filePath)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return s, s.save()
+	case err != nil:
+		return nil, err
 	}
-	err := s.load()
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			// Initialize with defaults
-			s.db = AppDatabase{
-				Transactions:     make([]Transaction, 0),
-				Classifications:  make(map[string]AssetClass),
-				AssetNames:       make(map[string]string),
-				AssetSymbols:     make(map[string]string),
-				ManualPrices:     make(map[string]float64),
-				ManualCurrencies: make(map[string]string),
-				ExchangeRates: map[string]float64{
-					"DKK": 1.0,
-					"EUR": 7.46,
-					"USD": 6.90,
-				},
-				AccountNames:     make(map[string]string),
-				AutoFetchRates:   true,
-			}
-			err = s.save()
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			return nil, err
-		}
+
+	if err := json.Unmarshal(data, &s.db); err != nil {
+		return nil, err
 	}
-	// In case loaded DB has nil maps (due to older schema or manual JSON edit)
-	s.ensureMaps()
+	s.db.ensureMaps()
 	return s, nil
 }
 
-func (s *Storage) ensureMaps() {
-	if s.db.Classifications == nil {
-		s.db.Classifications = make(map[string]AssetClass)
-	}
-	if s.db.AssetNames == nil {
-		s.db.AssetNames = make(map[string]string)
-	}
-	if s.db.AssetSymbols == nil {
-		s.db.AssetSymbols = make(map[string]string)
-	}
-	if s.db.ManualPrices == nil {
-		s.db.ManualPrices = make(map[string]float64)
-	}
-	if s.db.ManualCurrencies == nil {
-		s.db.ManualCurrencies = make(map[string]string)
-	}
-	if s.db.ExchangeRates == nil {
-		s.db.ExchangeRates = map[string]float64{
-			"DKK": 1.0,
-			"EUR": 7.46,
-			"USD": 6.90,
-		}
-	}
-	if s.db.AccountNames == nil {
-		s.db.AccountNames = make(map[string]string)
-	}
-}
-
-func (s *Storage) load() error {
-	f, err := os.Open(s.filePath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	data, err := io.ReadAll(f)
-	if err != nil {
-		return err
-	}
-
-	return json.Unmarshal(data, &s.db)
-}
-
+// save writes the database atomically so a crash never leaves a half-written file.
 func (s *Storage) save() error {
 	data, err := json.MarshalIndent(s.db, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(s.filePath, data, 0644)
+	tmp, err := os.CreateTemp(filepath.Dir(s.filePath), ".db-*.json")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), s.filePath)
 }
 
-// GetDB returns a copy of the database
-func (s *Storage) GetDB() AppDatabase {
+// GetDB returns a copy of the database.
+func (s *Storage) GetDB() Database {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-
-	// Perform a deep copy of transactions
-	txs := make([]Transaction, len(s.db.Transactions))
-	copy(txs, s.db.Transactions)
-
-	// Copy maps
-	classifications := make(map[string]AssetClass)
-	for k, v := range s.db.Classifications {
-		classifications[k] = v
-	}
-
-	names := make(map[string]string)
-	for k, v := range s.db.AssetNames {
-		names[k] = v
-	}
-
-	symbols := make(map[string]string)
-	for k, v := range s.db.AssetSymbols {
-		symbols[k] = v
-	}
-
-	prices := make(map[string]float64)
-	for k, v := range s.db.ManualPrices {
-		prices[k] = v
-	}
-
-	currencies := make(map[string]string)
-	for k, v := range s.db.ManualCurrencies {
-		currencies[k] = v
-	}
-
-	rates := make(map[string]float64)
-	for k, v := range s.db.ExchangeRates {
-		rates[k] = v
-	}
-
-	accNames := make(map[string]string)
-	for k, v := range s.db.AccountNames {
-		accNames[k] = v
-	}
-
-	return AppDatabase{
-		Transactions:     txs,
-		Classifications:  classifications,
-		AssetNames:       names,
-		AssetSymbols:     symbols,
-		ManualPrices:     prices,
-		ManualCurrencies: currencies,
-		ExchangeRates:    rates,
-		AccountNames:     accNames,
-		AutoFetchRates:   s.db.AutoFetchRates,
-	}
+	return s.db.clone()
 }
 
-// SaveClassifications updates the asset classifications, friendly names, symbols, manual prices/currencies
-func (s *Storage) SaveAssetMetadata(
-	classifications map[string]AssetClass,
-	names map[string]string,
-	prices map[string]float64,
-	currencies map[string]string,
-	rates map[string]float64,
-	accountNames map[string]string,
-	autoFetchRates bool,
-) error {
+// MetadataUpdate holds user edits; only keys present are changed.
+type MetadataUpdate struct {
+	Classifications map[string]AssetClass `json:"classifications"`
+	AssetNames      map[string]string     `json:"asset_names"`
+	AssetSymbols    map[string]string     `json:"asset_symbols"`
+	AccountNames    map[string]string     `json:"account_names"`
+}
+
+func (s *Storage) SaveMetadata(u MetadataUpdate) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.ensureMaps()
-
-	s.db.AutoFetchRates = autoFetchRates
-
-	for k, v := range classifications {
-		s.db.Classifications[k] = v
+	for k, v := range u.Classifications {
+		if v == AssetClassSecurity || v == AssetClassETF {
+			s.db.Classifications[k] = v
+		}
 	}
-	for k, v := range names {
-		s.db.AssetNames[k] = v
+	for k, v := range u.AssetNames {
+		s.db.AssetNames[k] = strings.TrimSpace(v)
 	}
-	for k, v := range prices {
-		s.db.ManualPrices[k] = v
+	for k, v := range u.AssetSymbols {
+		s.db.AssetSymbols[k] = strings.TrimSpace(v)
 	}
-	for k, v := range currencies {
-		s.db.ManualCurrencies[k] = v
-	}
-	for k, v := range rates {
-		s.db.ExchangeRates[k] = v
-	}
-	for k, v := range accountNames {
+	for k, v := range u.AccountNames {
+		if v = strings.TrimSpace(v); v == "" {
+			v = k
+		}
 		s.db.AccountNames[k] = v
 	}
 
 	return s.save()
 }
 
-// AddTransactions appends only non-duplicate transactions (by checking ID) and returns number of added transactions
+// AddTransactions appends transactions whose ID is not already stored and
+// registers any new securities and accounts. It returns the number added.
 func (s *Storage) AddTransactions(txs []Transaction) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.ensureMaps()
-
-	existingIDs := make(map[string]bool)
+	existing := make(map[string]bool, len(s.db.Transactions))
 	for _, tx := range s.db.Transactions {
-		existingIDs[tx.ID] = true
+		existing[tx.ID] = true
 	}
 
-	addedCount := 0
+	added := 0
 	for _, tx := range txs {
-		if !existingIDs[tx.ID] {
-			s.db.Transactions = append(s.db.Transactions, tx)
-			existingIDs[tx.ID] = true
-			addedCount++
+		if existing[tx.ID] {
+			continue
+		}
+		existing[tx.ID] = true
+		s.db.Transactions = append(s.db.Transactions, tx)
+		added++
 
-			// Auto-register any new assets in asset symbols and classifications (defaulting to Security/Stock)
-			if tx.ISIN != "" {
-				if _, ok := s.db.AssetSymbols[tx.ISIN]; !ok {
-					s.db.AssetSymbols[tx.ISIN] = tx.Symbol
-				}
-				if _, ok := s.db.Classifications[tx.ISIN]; !ok {
-					s.db.Classifications[tx.ISIN] = GuessAssetClass(tx.ISIN, tx.Symbol)
-				}
-				if _, ok := s.db.AssetNames[tx.ISIN]; !ok {
-					s.db.AssetNames[tx.ISIN] = tx.Symbol // default name to symbol
-				}
-				// Default manual price if not present
-				if _, ok := s.db.ManualPrices[tx.ISIN]; !ok {
-					if tx.Price > 0 {
-						s.db.ManualPrices[tx.ISIN] = tx.Price
-						s.db.ManualCurrencies[tx.ISIN] = tx.AcquisitionCurrency
-						if s.db.ManualCurrencies[tx.ISIN] == "" {
-							s.db.ManualCurrencies[tx.ISIN] = tx.AmountCurrency
-						}
-						if s.db.ManualCurrencies[tx.ISIN] == "" {
-							s.db.ManualCurrencies[tx.ISIN] = "DKK"
-						}
-					}
-				}
+		if tx.ISIN != "" {
+			if _, ok := s.db.AssetSymbols[tx.ISIN]; !ok {
+				s.db.AssetSymbols[tx.ISIN] = tx.Symbol
 			}
-
-			// Auto-register new accounts with default names (the account ID itself)
-			if tx.Account != "" {
-				if _, ok := s.db.AccountNames[tx.Account]; !ok {
-					s.db.AccountNames[tx.Account] = tx.Account
-				}
+			if _, ok := s.db.AssetNames[tx.ISIN]; !ok {
+				s.db.AssetNames[tx.ISIN] = tx.Symbol
 			}
-
-			// Auto-register any new currencies discovered in transactions
-			if tx.AmountCurrency != "" {
-				if _, ok := s.db.ExchangeRates[tx.AmountCurrency]; !ok {
-					s.db.ExchangeRates[tx.AmountCurrency] = 1.0
-				}
+			if _, ok := s.db.Classifications[tx.ISIN]; !ok {
+				s.db.Classifications[tx.ISIN] = GuessAssetClass(tx.ISIN, tx.Symbol)
 			}
-			if tx.AcquisitionCurrency != "" {
-				if _, ok := s.db.ExchangeRates[tx.AcquisitionCurrency]; !ok {
-					s.db.ExchangeRates[tx.AcquisitionCurrency] = 1.0
-				}
+		}
+		if tx.Account != "" {
+			if _, ok := s.db.AccountNames[tx.Account]; !ok {
+				s.db.AccountNames[tx.Account] = tx.Account
 			}
 		}
 	}
 
-	if addedCount > 0 {
-		err := s.save()
-		if err != nil {
-			return 0, err
-		}
+	if added == 0 {
+		return 0, nil
 	}
-
-	return addedCount, nil
+	return added, s.save()
 }
 
-// GuessAssetClass heuristics to automatically separate Stocks/Securities from ETFs
+// Reset deletes all transactions and settings.
+func (s *Storage) Reset() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.db = newDatabase()
+	return s.save()
+}
+
+// GuessAssetClass separates ETFs from other securities with a heuristic.
 func GuessAssetClass(isin, symbol string) AssetClass {
 	isin = strings.ToUpper(isin)
 	symbol = strings.ToUpper(symbol)

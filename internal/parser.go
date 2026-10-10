@@ -14,36 +14,36 @@ import (
 
 // Index mappings for Nordnet CSV export
 const (
-	colID                 = 0
-	colBookingDate        = 1
-	colTradeDate          = 2
-	colValueDate          = 3
-	colAccount            = 4
-	colTransactionType    = 5
-	colSymbol             = 6
-	colISIN               = 7
-	colQuantity           = 8
-	colPrice              = 9
-	colInterest           = 10
-	colFees               = 11
-	colFeeCurrency        = 12
-	colAmount             = 13
-	colAmountCurrency     = 14
-	colAcquisitionValue   = 15
+	colID                  = 0
+	colBookingDate         = 1
+	colTradeDate           = 2
+	colValueDate           = 3
+	colAccount             = 4
+	colTransactionType     = 5
+	colSymbol              = 6
+	colISIN                = 7
+	colQuantity            = 8
+	colPrice               = 9
+	colInterest            = 10
+	colFees                = 11
+	colFeeCurrency         = 12
+	colAmount              = 13
+	colAmountCurrency      = 14
+	colAcquisitionValue    = 15
 	colAcquisitionCurrency = 16
-	colResult             = 17
-	colResultCurrency     = 18
-	colTotalQuantity      = 19
-	colBalance            = 20
-	colExchangeRate       = 21
-	colTransactionText    = 22
-	colCancellationDate   = 23
-	colNoteNumber         = 24
+	colResult              = 17
+	colResultCurrency      = 18
+	colTotalQuantity       = 19
+	colBalance             = 20
+	colExchangeRate        = 21
+	colTransactionText     = 22
+	colCancellationDate    = 23
+	colNoteNumber          = 24
 	colVerificationNumber  = 25
-	colBrokerage          = 26
-	colBrokerageCurrency  = 27
-	colAvgPrice           = 28
-	colOriginalInterest   = 29
+	colBrokerage           = 26
+	colBrokerageCurrency   = 27
+	colAvgPrice            = 28
+	colOriginalInterest    = 29
 )
 
 // ParseNordnetFloat converts a string formatted in the Danish/European numeric style (comma as decimal separator) to a float64
@@ -141,17 +141,14 @@ func DecodeToUTF8(data []byte) []byte {
 	return data
 }
 
-// ParseNordnetCSV parses Nordnet's tab-delimited CSV, auto-detecting encoding
+// ParseNordnetCSV parses Nordnet's tab-delimited CSV export, auto-detecting the encoding.
 func ParseNordnetCSV(r io.Reader) ([]Transaction, error) {
-	// Read everything into a buffer to decode
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return nil, err
 	}
 
-	utf8Data := DecodeToUTF8(data)
-
-	csvReader := csv.NewReader(bytes.NewReader(utf8Data))
+	csvReader := csv.NewReader(bytes.NewReader(DecodeToUTF8(data)))
 	csvReader.Comma = '\t'
 	csvReader.FieldsPerRecord = -1 // Flexible column counts
 	csvReader.LazyQuotes = true
@@ -162,107 +159,56 @@ func ParseNordnetCSV(r io.Reader) ([]Transaction, error) {
 	}
 
 	var transactions []Transaction
-
 	for idx, row := range rows {
-		// Skip header row (identifiable by "Id" or "Bogføringsdag" in first columns)
-		if idx == 0 {
-			continue
-		}
-		if len(row) < 6 {
-			// Row is too short to be a valid transaction row
+		// Skip the header row and rows too short to be a transaction
+		if idx == 0 || len(row) < 6 {
 			continue
 		}
 
-		// Ensure the row has enough columns
-		id := strings.TrimSpace(row[colID])
-		if id == "" {
+		str := func(col int) string {
+			if col < len(row) {
+				return strings.TrimSpace(row[col])
+			}
+			return ""
+		}
+		num := func(col int) float64 { return ParseNordnetFloat(str(col)) }
+
+		if str(colID) == "" {
 			continue
 		}
 
-		tx := Transaction{
-			ID:              id,
-			BookingDate:     strings.TrimSpace(row[colBookingDate]),
-			TradeDate:       strings.TrimSpace(row[colTradeDate]),
-			ValueDate:       strings.TrimSpace(row[colValueDate]),
-			Account:         strings.TrimSpace(row[colAccount]),
-			TransactionType: strings.TrimSpace(row[colTransactionType]),
-		}
-
-		// Parse remaining optional/index-safe columns
-		if len(row) > colSymbol {
-			tx.Symbol = strings.TrimSpace(row[colSymbol])
-		}
-		if len(row) > colISIN {
-			tx.ISIN = strings.TrimSpace(row[colISIN])
-		}
-		if len(row) > colQuantity {
-			tx.Quantity = ParseNordnetFloat(row[colQuantity])
-		}
-		if len(row) > colPrice {
-			tx.Price = ParseNordnetFloat(row[colPrice])
-		}
-		if len(row) > colInterest {
-			tx.Interest = ParseNordnetFloat(row[colInterest])
-		}
-		if len(row) > colFees {
-			tx.Fees = ParseNordnetFloat(row[colFees])
-		}
-		if len(row) > colFeeCurrency {
-			tx.FeeCurrency = strings.TrimSpace(row[colFeeCurrency])
-		}
-		if len(row) > colAmount {
-			tx.Amount = ParseNordnetFloat(row[colAmount])
-		}
-		if len(row) > colAmountCurrency {
-			tx.AmountCurrency = strings.TrimSpace(row[colAmountCurrency])
-		}
-		if len(row) > colAcquisitionValue {
-			tx.AcquisitionValue = ParseNordnetFloat(row[colAcquisitionValue])
-		}
-		if len(row) > colAcquisitionCurrency {
-			tx.AcquisitionCurrency = strings.TrimSpace(row[colAcquisitionCurrency])
-		}
-		if len(row) > colResult {
-			tx.Result = ParseNordnetFloat(row[colResult])
-		}
-		if len(row) > colResultCurrency {
-			tx.ResultCurrency = strings.TrimSpace(row[colResultCurrency])
-		}
-		if len(row) > colTotalQuantity {
-			tx.TotalQuantity = ParseNordnetFloat(row[colTotalQuantity])
-		}
-		if len(row) > colBalance {
-			tx.Balance = ParseNordnetFloat(row[colBalance])
-		}
-		if len(row) > colExchangeRate {
-			tx.ExchangeRate = ParseNordnetFloat(row[colExchangeRate])
-		}
-		if len(row) > colTransactionText {
-			tx.TransactionText = strings.TrimSpace(row[colTransactionText])
-		}
-		if len(row) > colCancellationDate {
-			tx.CancellationDate = strings.TrimSpace(row[colCancellationDate])
-		}
-		if len(row) > colNoteNumber {
-			tx.NoteNumber = strings.TrimSpace(row[colNoteNumber])
-		}
-		if len(row) > colVerificationNumber {
-			tx.VerificationNumber = strings.TrimSpace(row[colVerificationNumber])
-		}
-		if len(row) > colBrokerage {
-			tx.Brokerage = ParseNordnetFloat(row[colBrokerage])
-		}
-		if len(row) > colBrokerageCurrency {
-			tx.BrokerageCurrency = strings.TrimSpace(row[colBrokerageCurrency])
-		}
-		if len(row) > colAvgPrice {
-			tx.AvgPrice = ParseNordnetFloat(row[colAvgPrice])
-		}
-		if len(row) > colOriginalInterest {
-			tx.OriginalInterest = ParseNordnetFloat(row[colOriginalInterest])
-		}
-
-		transactions = append(transactions, tx)
+		transactions = append(transactions, Transaction{
+			ID:                  str(colID),
+			BookingDate:         str(colBookingDate),
+			TradeDate:           str(colTradeDate),
+			ValueDate:           str(colValueDate),
+			Account:             str(colAccount),
+			TransactionType:     str(colTransactionType),
+			Symbol:              str(colSymbol),
+			ISIN:                str(colISIN),
+			Quantity:            num(colQuantity),
+			Price:               num(colPrice),
+			Interest:            num(colInterest),
+			Fees:                num(colFees),
+			FeeCurrency:         str(colFeeCurrency),
+			Amount:              num(colAmount),
+			AmountCurrency:      str(colAmountCurrency),
+			AcquisitionValue:    num(colAcquisitionValue),
+			AcquisitionCurrency: str(colAcquisitionCurrency),
+			Result:              num(colResult),
+			ResultCurrency:      str(colResultCurrency),
+			TotalQuantity:       num(colTotalQuantity),
+			Balance:             num(colBalance),
+			ExchangeRate:        num(colExchangeRate),
+			TransactionText:     str(colTransactionText),
+			CancellationDate:    str(colCancellationDate),
+			NoteNumber:          str(colNoteNumber),
+			VerificationNumber:  str(colVerificationNumber),
+			Brokerage:           num(colBrokerage),
+			BrokerageCurrency:   str(colBrokerageCurrency),
+			AvgPrice:            num(colAvgPrice),
+			OriginalInterest:    num(colOriginalInterest),
+		})
 	}
 
 	return transactions, nil
