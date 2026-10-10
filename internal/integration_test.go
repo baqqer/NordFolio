@@ -1,127 +1,113 @@
 package internal
 
 import (
+	"math"
 	"os"
 	"testing"
 )
 
-func TestIntegrationActualCSV(t *testing.T) {
-	// Let's use our ParseNordnetCSV with bytes.NewReader
-	importFile, err := os.Open("transactions-and-notes-export.csv")
+func approx(t *testing.T, name string, got, want float64) {
+	t.Helper()
+	if math.Abs(got-want) > 0.01 {
+		t.Errorf("%s = %.4f, want %.4f", name, got, want)
+	}
+}
+
+func loadSampleDB(t *testing.T) Database {
+	t.Helper()
+	f, err := os.Open("transactions-and-notes-export.csv")
 	if err != nil {
-		t.Fatalf("Failed to open transactions-and-notes-export.csv: %v", err)
+		t.Fatal(err)
 	}
-	defer importFile.Close()
+	defer f.Close()
 
-	parsedTxs, err := ParseNordnetCSV(importFile)
+	txs, err := ParseNordnetCSV(f)
 	if err != nil {
-		t.Fatalf("Failed to parse actual CSV: %v", err)
+		t.Fatalf("Failed to parse sample CSV: %v", err)
+	}
+	if len(txs) != 15 {
+		t.Fatalf("Expected 15 transactions, got %d", len(txs))
 	}
 
-	if len(parsedTxs) == 0 {
-		t.Fatalf("No transactions parsed from actual CSV")
+	db := newDatabase()
+	db.Transactions = txs
+	db.Classifications = map[string]AssetClass{
+		"IE000ANONYM0": AssetClassETF,
+		"DK000ANONYM0": AssetClassSecurity,
+		"US000ANONYM0": AssetClassSecurity,
+	}
+	db.AssetSymbols = map[string]string{
+		"IE000ANONYM0": "FOO",
+		"DK000ANONYM0": "BAR",
+		"US000ANONYM0": "BAZ",
+	}
+	return db
+}
+
+func TestIntegrationSampleCSV(t *testing.T) {
+	a := BuildAllocation(loadSampleDB(t), nil)
+
+	// Latest "Saldo" per account: 6030.25 + 0.98
+	approx(t, "cash", a.CashDKK, 6031.23)
+
+	// BAR: 36 shares bought for 5993.80 DKK including brokerage
+	approx(t, "securities", a.SecuritiesDKK, 5993.80)
+
+	// FOO: 818.70 EUR @ 7.4907 + 800.92 EUR @ 7.4931
+	fooDKK := 818.70*7.4907 + 800.92*7.4931
+	approx(t, "ETFs", a.ETFsDKK, fooDKK)
+	approx(t, "total", a.TotalDKK, 6031.23+5993.80+fooDKK)
+
+	if a.AsOf != "2026-08-04" {
+		t.Errorf("as_of = %q, want 2026-08-04", a.AsOf)
 	}
 
-	t.Logf("Parsed %d transactions successfully from actual Nordnet CSV", len(parsedTxs))
-
-	// 3. Setup database
-	db := AppDatabase{
-		Transactions: parsedTxs,
-		Classifications: map[string]AssetClass{
-			"IE000ANONYM0": AssetClassETF,      // FOO
-			"DK000ANONYM0": AssetClassSecurity, // BAR
-			"US000ANONYM0": AssetClassSecurity, // BAZ
-		},
-		AssetSymbols: map[string]string{
-			"IE000ANONYM0": "FOO",
-			"DK000ANONYM0": "BAR",
-			"US000ANONYM0": "BAZ",
-		},
-		ManualPrices: map[string]float64{
-			"IE000ANONYM0": 12.66,
-			"DK000ANONYM0": 165.8,
-			"US000ANONYM0": 0.3,
-		},
-		ManualCurrencies: map[string]string{
-			"IE000ANONYM0": "EUR",
-			"DK000ANONYM0": "DKK",
-			"US000ANONYM0": "USD",
-		},
-		ExchangeRates: map[string]float64{
-			"DKK": 1.0,
-			"EUR": 7.4931,
-			"USD": 6.5367,
-		},
+	// BAZ was fully sold and must not appear
+	if len(a.Holdings) != 2 {
+		t.Fatalf("Expected 2 holdings, got %+v", a.Holdings)
+	}
+	foo, bar := a.Holdings[0], a.Holdings[1]
+	if foo.Symbol != "FOO" || bar.Symbol != "BAR" {
+		t.Fatalf("Holdings not sorted by book value: %s, %s", foo.Symbol, bar.Symbol)
+	}
+	approx(t, "FOO quantity", foo.Quantity, 128)
+	approx(t, "FOO avg cost (EUR)", foo.AvgCost, (818.70+800.92)/128)
+	if foo.Currency != "EUR" || foo.Class != AssetClassETF {
+		t.Errorf("FOO currency/class = %s/%s", foo.Currency, foo.Class)
+	}
+	approx(t, "BAR quantity", bar.Quantity, 36)
+	approx(t, "BAR avg cost (DKK)", bar.AvgCost, 5993.80/36)
+	if bar.Name != "BAR" {
+		t.Errorf("Name should fall back to symbol, got %q", bar.Name)
 	}
 
-	// 4. Run Analysis
-	analysis, err := AnalyzePortfolio(db, nil)
-	if err != nil {
-		t.Fatalf("Failed to analyze actual CSV: %v", err)
+	sum := 0.0
+	for _, s := range a.ByClass {
+		sum += s.Weight
 	}
+	approx(t, "class weights", sum, 100)
 
-	t.Logf("=== Portfolio Valuation Results ===")
-	t.Logf("Total Value: %.2f DKK", analysis.TotalValueDKK)
-	t.Logf("Total Cash: %.2f DKK", analysis.TotalCashDKK)
-	t.Logf("Total Securities: %.2f DKK", analysis.TotalSecuritiesDKK)
-	t.Logf("Total ETFs: %.2f DKK", analysis.TotalETFsDKK)
-	t.Logf("Total Book Value: %.2f DKK", analysis.TotalBookValueDKK)
-	t.Logf("Total Gain/Loss: %.2f DKK (%.2f%%)", analysis.TotalGainLossDKK, analysis.TotalGainLossPct)
-
-	// 5. Verification checks
-	// Let's assert that we have the exact cash balance that matches the newest transaction's balance!
-	// Newest cash balance of 12345678 is 6030.25 (after transaction 2634966455)
-	// Newest cash balance of 87654321 is 0.98 (after transaction 2634966281)
-	// Total cash must be 6030.25 + 0.98 = 6031.23 DKK!
-	expectedCash := 6031.23
-	if analysis.TotalCashDKK != expectedCash {
-		t.Errorf("Cash balances do not align. Expected %.2f DKK, got %.2f DKK", expectedCash, analysis.TotalCashDKK)
-	} else {
-		t.Logf("SUCCESS: Cash balances match exactly at %.2f DKK", expectedCash)
+	byAccount := map[string]float64{}
+	for _, s := range a.ByAccount {
+		byAccount[s.Key] = s.ValueDKK
 	}
+	approx(t, "account 12345678", byAccount["12345678"], 6030.25+5993.80+fooDKK)
+	approx(t, "account 87654321", byAccount["87654321"], 0.98)
 
-	// Verify FOO holdings are 128 shares!
-	var webnQty float64
-	var majdcsQty float64
-	var mvinQty float64
-
-	for _, asset := range analysis.Assets {
-		if asset.Symbol == "FOO" {
-			webnQty = asset.Quantity
-		} else if asset.Symbol == "BAR" {
-			majdcsQty = asset.Quantity
-		} else if asset.Symbol == "BAZ" {
-			mvinQty = asset.Quantity
-		}
+	byCurrency := map[string]float64{}
+	for _, s := range a.ByCurrency {
+		byCurrency[s.Key] = s.ValueDKK
 	}
+	approx(t, "EUR", byCurrency["EUR"], fooDKK)
+	approx(t, "DKK", byCurrency["DKK"], 5993.80+6031.23)
+}
 
-	if webnQty != 128 {
-		t.Errorf("Expected FOO quantity 128, got %f", webnQty)
-	} else {
-		t.Logf("SUCCESS: FOO holding quantity is exactly 128 shares")
-	}
+func TestIntegrationAccountFilter(t *testing.T) {
+	a := BuildAllocation(loadSampleDB(t), map[string]bool{"87654321": true})
 
-	if majdcsQty != 36 {
-		t.Errorf("Expected BAR quantity 36, got %f", majdcsQty)
-	} else {
-		t.Logf("SUCCESS: BAR holding quantity is exactly 36 shares")
-	}
-
-	if mvinQty != 0 {
-		t.Errorf("Expected BAZ quantity 0 (fully sold), got %f", mvinQty)
-	} else {
-		t.Logf("SUCCESS: BAZ holding quantity is exactly 0 shares (successfully sold)")
-	}
-
-	// Verify that starting Invested Capital has been initialized to the pre-existing balance of 6158.04 + 1.96 = 6160.00 DKK!
-	if len(analysis.InvestedCapitalSeries) > 0 {
-		startInvested := analysis.InvestedCapitalSeries[0]
-		expectedStartInvested := 6160.00
-		// Account for float precision tolerance of 0.05 DKK
-		if startInvested < expectedStartInvested-0.05 || startInvested > expectedStartInvested+0.05 {
-			t.Errorf("Starting Invested Capital did not initialize correctly. Expected close to %.2f, got %.2f", expectedStartInvested, startInvested)
-		} else {
-			t.Logf("SUCCESS: Starting Invested Capital initialized correctly at %.2f DKK", startInvested)
-		}
+	approx(t, "cash", a.CashDKK, 0.98)
+	approx(t, "total", a.TotalDKK, 0.98)
+	if len(a.Holdings) != 0 {
+		t.Errorf("Expected no holdings, got %+v", a.Holdings)
 	}
 }

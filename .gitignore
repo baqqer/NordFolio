@@ -9,3 +9,6 @@ GEMINI.md
 
 # OS specific files
 .DS_Store
+
+# Graphify files
+graphify-out/

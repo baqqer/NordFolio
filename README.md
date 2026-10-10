@@ -2,144 +2,123 @@
 
 > **OBS:** Dette er et “vibecodet” projekt! Alt brug er på eget ansvar..!
 
-Et lokalt afviklet og privatlivsfokuseret porteføljeværktøj til Nordnet-eksportfiler, optimeret til hurtige iterationer, enkel lokal implementering, uden overdrevne abstraktioner eller enterprise-arkitektur. NordFolio rekonstruerer din transaktionshistorik, beregner din reelle anskaffelsesværdi (AVCO) og visualiserer tidsvægtet afkast (TWR) og drawdowns – 100% lokalt på din egen maskine.
+Et lokalt afviklet og privatlivsfokuseret værktøj til Nordnet-eksportfiler. NordFolio læser din transaktionshistorik, rekonstruerer dine beholdninger og kontantsaldi og viser, hvordan din portefølje er fordelt – 100 % lokalt på din egen maskine.
 
-Al din transaktionshistorik og dine personlige indstillinger gemmes **lokalt i en enkelt JSON-databasefil (`db.json`)**. Ingen finansielle data eller personlige oplysninger forlader nogensinde din computer.
+NordFolio bruger **ingen markedskurser**. Alle værdier er **bogført værdi**: hvad du har betalt for dine værdipapirer efter gennemsnitsmetoden (AVCO), plus dine kontanter. Det giver et præcist billede af, hvor din kapital er placeret, uden at du skal betale for adgang til realtidskurser.
 
-**OBS:** Værktøjet understøtter KUN danskesprogede eksportfiler i sin nuværende stand..! Af samme årsag findes NordFolio kun på dansk og viser porteføljeværdi i DKK.
+Al din transaktionshistorik og dine indstillinger gemmes **lokalt i en enkelt JSON-fil (`db.json`)**. NordFolio laver ingen netværkskald ud af din maskine.
+
+**OBS:** Værktøjet understøtter KUN dansksprogede eksportfiler. Af samme årsag findes NordFolio kun på dansk og viser værdier i DKK.
 
 ---
 
 <p align="center">
-  <img src="assets/nordfolio-demo.gif" alt="NordFolio Demonstration" width="100%">
+  <img src="assets/nordfolio-overview.png" alt="NordFolio overblik" width="100%">
 </p>
 
 ---
 
-## Nøglefunktioner
+## Funktioner
 
-1. **Robust parser til Nordnets CSV-eksport**:
-   - Detekterer automatisk om filen er encodet i **UTF-8** eller **WINDOWS-1252**.
-   - Håndterer tab-separerede filer med europæiske/danske talformater med komma som decimalseparator.
-2. **Beskyttelse mod dubletter**:
-   - Springer automatisk allerede importerede linjer over ved hjælp af de unikke transaktions-ID'er, så du kan uploade overlappende eksportfiler.
-3. **Avanceret visualisering af din portefølje**:
-   - **Porteføljeværdi (DKK)**: Rekonstruerer din porteføljeværdi opdelt på aktier/fonde, ETF'er og kontanter og viser den sammenholdt med din investerede kapital.
-   - **Simpelt afkast (%)**: Viser dit kumulative afkast over tid, overlejret med et simuleret MSCI World-indeks (8% p.a.) som benchmark.
-   - **Tidsvægtet afkast (TWR %)**: Viser dit tidsvægtede afkast og fjerner effekten af dine ind- og udbetalinger, overlejret med MSCI World som benchmark.
-   - **Portfolio Drawdown (%)**: Beregner dit maksimale værditab (peak-to-trough) over tid, så du kan visualisere din reelle risikoprofil og volatilitet.
-   - **Månedligt afkast (%)**: Konverterer dine transaktioner til et farvekodet søjlediagram grupperet pr. kalendermåned.
-   - Hurtige tidsfiltre: **1 måned, 6 måneder, 1 år, YTD, MTD eller Maks (altid)**.
-4. **Automatisk valutadetektering & Live FX-kurser**:
-   - Finder og registrerer automatisk nye valutaer (USD, EUR, SEK, NOK, GBP osv.) ved CSV-import.
-   - Henter automatisk live-valutakurser via Frankfurter API med automatisk fallback to ExchangeRate-API.
-5. **Interaktiv styring af aktiver**:
-   - Rediger tickersymboler og giv dine aktiver beskrivende navne.
-   - Klassificer dine aktiver som aktier/fonde eller ETF'er (kontantbeholdningen beregnes automatisk).
-   - Indtast manuelle priser (realtidskurser) og vælg handelsvaluta.
-   - Giv dine forskellige Nordnet-depoter/konti beskrivende navne (fx "Aktiesparekonto").
-6. **Detaljeret transaktionslog**:
-   - Gennemse hele din samlede transaktionshistorik med en lynhurtig, lokal søgefunktion.
+1. **Robust import af Nordnets CSV-eksport**
+   - Detekterer automatisk UTF-16, UTF-8 og WINDOWS-1252.
+   - Håndterer tab-separerede filer med danske talformater.
+   - Springer allerede importerede rækker over ved hjælp af Nordnets transaktions-ID'er, så du trygt kan uploade overlappende eksportfiler.
+2. **Porteføljefordeling**
+   - Samlet bogført værdi fordelt på aktier/fonde, ETF'er og kontanter.
+   - Fordeling på værdipapirer, konti og handelsvaluta.
+   - Beholdningstabel med antal, gennemsnitlig anskaffelseskurs i handelsvalutaen og vægt i porteføljen.
+   - Vælg hvilke konti der indgår. Valget huskes i browseren.
+3. **Aktiver og konti**
+   - Giv dine værdipapirer beskrivende navne og tickers.
+   - Klassificer dem som aktier/fonde eller ETF'er (ETF'er gættes automatisk ud fra ISIN og navn).
+   - Giv dine Nordnet-konti beskrivende navne, f.eks. "Aktiesparekonto". Nye konti fundet ved import kan navngives med det samme.
+4. **Transaktionslog**
+   - Hele din transaktionshistorik med søgning og filter på transaktionstype.
+
+### Sådan beregnes værdierne
+
+- **Antal** følger køb, salg, overførsler, ombytninger, fusioner og splits pr. konto.
+- **Anskaffelsesværdi** følger gennemsnitsmetoden (AVCO). Kurtage indgår i anskaffelsesværdien, og udenlandske køb omregnes til DKK med vekslingskursen på handelsdagen. Ved salg beholder de resterende papirer deres gennemsnitlige anskaffelseskurs.
+- **Kontanter** er den seneste saldo pr. konto fra eksportfilen.
+- **Delvis historik:** Starter eksportfilen ikke ved din første handel, rekonstrueres startbeholdninger og -saldi fra den første række pr. konto og værdipapir. Anskaffelsesværdien for papirer, du allerede ejede, anslås da ud fra kursen på den række. Eksporter hele historikken for præcise tal.
 
 ---
 
-## Teknologier & Arkitektur
+## Teknologier
 
-- **Backend**: Skrevet i Go  og bruger udelukkende standardbiblioteket `net/http` til routing, en simpel og trådsikker JSON-database samt backend-proxy til valutakurser).
-- **Frontend**: En ren Single Page Application (SPA) bygget med **semantisk HTML5**, **Vanilla CSS3** og **Chart.js hentet via CDN** til interaktive grafer. Ingen tunge frameworks.
+- **Backend**: Go med standardbiblioteket `net/http` og en simpel, trådsikker JSON-database.
+- **Frontend**: Semantisk HTML, vanilla CSS og JavaScript uden frameworks eller eksterne biblioteker. Frontenden er indlejret i Go-binæren.
 
 ---
 
 ## Kom i gang
 
 ### 1. Forudsætninger
-Du skal have **Go 1.16+** installeret på din maskine.
-Tjek din version med:
+Du skal have **Go 1.26+** installeret:
 ```bash
 go version
 ```
 
 ### 2. Kør applikationen lokalt
-Kør Go-applikationen direkte fra rodmappen:
 ```bash
 go run .
 ```
 
-Appen vil som standard starte op på `http://localhost:8080` og oprette/bruge `db.json` as din lokale database.
+Appen starter på `http://localhost:8080` og opretter/bruger `db.json` som database.
 
-####  Konfiguration (Valgfrit)
-Du kan konfigurere port, databasesti og offline-tilstand via flags eller environment-variabler:
-
-- **Port**: `-port 3000` (eller via nvironment-variabel `PORT=3000`)
-- **Databasesti**: `-db <min-egen-portefoelje.json>`
-- **Offline-tilstand (Deaktiver FX API)**: `-disable-fx-api` (eller environment-variabel `DISABLE_FX_API=true`). Dette lukker fuldstændigt af for alle eksterne netværksforbindelser, hvor du selv sætter valutakurserne manuelt.
+#### Konfiguration (valgfrit)
+- **Port**: `-port 3000` (eller environment-variablen `PORT=3000`)
+- **Databasesti**: `-db min-portefoelje.json`
 
 ```bash
-# Eksempel: Kør på port 3000 i fuld offline-tilstand
-go run . -port 3000 -disable-fx-api
+go run . -port 3000 -db min-portefoelje.json
 ```
 
 ### 3. Kør med Docker
-Du kan køre applikationen i en Docker-container. Da Dockerfilen ligger i `docker-directoriet`, skal du angive stien med `-f` og sætte build-konteksten til rod-directory (`.`):
+Dockerfilen ligger i `docker/`, så angiv den med `-f` og brug roden (`.`) som build-kontekst:
 
 ```bash
-# 1. Byg Docker-image
 docker build -f docker/Dockerfile -t nordfolio .
-
-# 2. Kør containeren (åbner port 8080)
-docker run -d -p 8080:8080 --name portfolio-tracker nordfolio
-
-# 3. Kør containeren i offline-tilstand (uden eksterne API-kald)
-docker run -d -p 8080:8080 -e DISABLE_FX_API=true --name offline-portfolio-tracker nordfolio
+docker run -d -p 8080:8080 --name nordfolio nordfolio
 ```
 
-#### Kør i Docker med persistent storage
-Har du ikke mappet din db-fil ud til din maskines filsystem mister du dine konfigurationer og importerede data.
-
-For at gemme persiste dine data skal du **mounte et directory fra din computer til containerens `/data`-directory** og starte applikationen med `-db`-flag'et:
+#### Persistent storage
+Uden et mountet directory forsvinder dine data, når containeren slettes. Mount et directory til `/data` og peg databasen derhen:
 
 ```bash
-# 1. Opret et directory på din maskine
 mkdir -p data
-
-# 2. Kør containeren med persistent storage
 docker run -d \
   -p 8080:8080 \
-  -v /absolut/sti/til/data:/data \
-  --name portfolio-tracker \
-  nordfolio \
-  -db /data/db.json
-
-# 3. Kør i offline-tilstand med persistent storage
-docker run -d \
-  -p 8080:8080 \
-  -v /absolut/sti/til/data:/data \
-  -e DISABLE_FX_API=true \
-  --name offline-portfolio-tracker \
+  -v "$(pwd)/data:/data" \
+  --name nordfolio \
   nordfolio \
   -db /data/db.json
 ```
 
 ### 4. Åbn dashboardet
-Åbn din browser og gå til:
-**[http://localhost:8080](http://localhost:8080)**
+Gå til **[http://localhost:8080](http://localhost:8080)**.
 
 ---
 
 ## Sådan importerer du dine data
 
-1. Log ind på din **Nordnet**-konto.
-2. Gå til din transaktionshistorik (Eksport) og download filen som CSV (hedder typisk `transactions-and-notes-export.csv`).
-3. Træk og slip (eller vælg) filen i panelet **Importer Nordnet transaktioner** på dashboardet.
-4. Klik på **Indlæs og importer**. Dit dashboard er nu live!
-5. Gå til fanen **Aktiver & Priser** for at tilføje realtidskurser, klassificere dine ETF'er og give dine depoter beskrivende navne.
+1. Log ind på **Nordnet**.
+2. Gå til din transaktionshistorik og eksporter den som CSV (filen hedder typisk `transactions-and-notes-export.csv`). Vælg gerne hele perioden fra din første handel.
+3. Træk filen ind i NordFolio, eller brug **Importer CSV** i toppen.
+4. Giv eventuelle nye konti et navn.
+5. Gå til **Aktiver & konti** for at navngive og klassificere dine værdipapirer.
 
-> **VIGTIGT:** Din CSV-eksport **SKAL indeholde hele din transaktionshistorik** (helt fra din første handel). Da NordFolio rekonstruerer din historiske balance, reelle anskaffelsesværdi (AVCO) og løbende kontosaldi kronologisk fra bunden, vil en delvis historik føre til forkerte startværdier, skæve kurver og misvisende performancetal. Sørg for at eksportere det fulde tidsrum.
+Du kan importere nye eksportfiler løbende. Rækker, der allerede er indlæst, springes over.
+
+### Opgradering fra en tidligere version
+Eksisterende `db.json`-filer kan bruges direkte. Manuelle kurser og valutakurser fra tidligere versioner bruges ikke længere og fjernes, næste gang databasen gemmes.
 
 ---
 
 ## Kørsel af test
-For at afvikle testsuiten, som verificerer CSV-parsing, decimalberegninger, interne/eksterne overførsler og AVCO-omkostningsberegninger:
 ```bash
-go test -v ./...
+go test ./...
 ```
+
+Testene dækker CSV-parsing og tegnsæt, AVCO-beregninger, delvis historik, beholdninger pr. konto, kontofilter, import af ældre databaser og API'et. En integrationstest bruger den anonymiserede eksportfil i `internal/transactions-and-notes-export.csv`.

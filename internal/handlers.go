@@ -2,307 +2,203 @@ package internal
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"sort"
 	"strings"
-	"time"
 )
 
+const maxUploadBytes = 20 << 20
+
 type Server struct {
-	storage      *Storage
-	disableFXAPI bool
+	storage *Storage
 }
 
-func NewServer(storage *Storage, disableFXAPI bool) *Server {
-	return &Server{storage: storage, disableFXAPI: disableFXAPI}
+func NewServer(storage *Storage) *Server {
+	return &Server{storage: storage}
 }
 
-// GetPortfolio handles GET /api/portfolio
+// Register adds the API routes to mux.
+func (s *Server) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/portfolio", s.GetPortfolio)
+	mux.HandleFunc("GET /api/transactions", s.GetTransactions)
+	mux.HandleFunc("POST /api/upload", s.UploadCSV)
+	mux.HandleFunc("POST /api/metadata", s.SaveMetadata)
+	mux.HandleFunc("POST /api/reset", s.ResetDatabase)
+}
+
+type Account struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type Asset struct {
+	ISIN   string     `json:"isin"`
+	Symbol string     `json:"symbol"`
+	Name   string     `json:"name"`
+	Class  AssetClass `json:"class"`
+}
+
+type PortfolioResponse struct {
+	Allocation       Allocation `json:"allocation"`
+	Accounts         []Account  `json:"accounts"`
+	Assets           []Asset    `json:"assets"`
+	TransactionCount int        `json:"transaction_count"`
+}
+
+// GetPortfolio handles GET /api/portfolio?accounts=a,b
 func (s *Server) GetPortfolio(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	accountsParam := r.URL.Query().Get("accounts")
-	visibleAccounts := make(map[string]bool)
-	if accountsParam != "" {
-		for _, acc := range strings.Split(accountsParam, ",") {
-			acc = strings.TrimSpace(acc)
-			if acc != "" {
-				visibleAccounts[acc] = true
-			}
-		}
-	}
-
 	db := s.storage.GetDB()
-	analysis, err := AnalyzePortfolio(db, visibleAccounts)
-	if err != nil {
-		s.respondWithError(w, http.StatusInternalServerError, "Failed to analyze portfolio: "+err.Error())
-		return
-	}
 
-	s.respondWithJSON(w, http.StatusOK, map[string]interface{}{
-		"analysis":   analysis,
-		"db_summary": s.getDbSummary(db),
-		"db":         db,
+	assets := make([]Asset, 0, len(db.AssetSymbols))
+	for isin, symbol := range db.AssetSymbols {
+		assets = append(assets, Asset{ISIN: isin, Symbol: symbol, Name: db.AssetNames[isin], Class: db.Classifications[isin]})
+	}
+	sort.Slice(assets, func(i, j int) bool {
+		if assets[i].Symbol != assets[j].Symbol {
+			return assets[i].Symbol < assets[j].Symbol
+		}
+		return assets[i].ISIN < assets[j].ISIN
+	})
+
+	respondWithJSON(w, http.StatusOK, PortfolioResponse{
+		Allocation:       BuildAllocation(db, parseAccounts(r)),
+		Accounts:         listAccounts(db),
+		Assets:           assets,
+		TransactionCount: len(db.Transactions),
 	})
 }
 
-// UploadCSV handles POST /api/upload
+// GetTransactions handles GET /api/transactions?accounts=a,b (newest first)
+func (s *Server) GetTransactions(w http.ResponseWriter, r *http.Request) {
+	accounts := parseAccounts(r)
+	db := s.storage.GetDB()
+
+	txs := make([]Transaction, 0, len(db.Transactions))
+	for _, tx := range db.Transactions {
+		if len(accounts) == 0 || accounts[tx.Account] {
+			txs = append(txs, tx)
+		}
+	}
+	SortTransactions(txs)
+	for i, j := 0, len(txs)-1; i < j; i, j = i+1, j-1 {
+		txs[i], txs[j] = txs[j], txs[i]
+	}
+
+	respondWithJSON(w, http.StatusOK, txs)
+}
+
+// UploadCSV handles POST /api/upload (multipart field "file")
 func (s *Server) UploadCSV(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Parse multipart form
-	err := r.ParseMultipartForm(10 << 20) // 10MB max
-	if err != nil {
-		s.respondWithError(w, http.StatusBadRequest, "Failed to parse form: "+err.Error())
-		return
-	}
-
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
 	file, _, err := r.FormFile("file")
 	if err != nil {
-		s.respondWithError(w, http.StatusBadRequest, "Missing file: "+err.Error())
+		respondWithError(w, http.StatusBadRequest, "Kunne ikke læse filen: "+err.Error())
 		return
 	}
 	defer file.Close()
 
 	txs, err := ParseNordnetCSV(file)
 	if err != nil {
-		s.respondWithError(w, http.StatusBadRequest, "Failed to parse CSV file: "+err.Error())
+		respondWithError(w, http.StatusBadRequest, "Kunne ikke læse CSV-filen: "+err.Error())
 		return
 	}
-
 	if len(txs) == 0 {
-		s.respondWithError(w, http.StatusBadRequest, "No valid transaction rows found in the CSV")
+		respondWithError(w, http.StatusBadRequest, "Filen indeholder ingen gyldige transaktioner")
 		return
 	}
 
+	known := s.storage.GetDB().AccountNames
 	added, err := s.storage.AddTransactions(txs)
 	if err != nil {
-		s.respondWithError(w, http.StatusInternalServerError, "Failed to save transactions: "+err.Error())
+		respondWithError(w, http.StatusInternalServerError, "Kunne ikke gemme transaktionerne: "+err.Error())
 		return
 	}
 
-	s.respondWithJSON(w, http.StatusOK, map[string]interface{}{
-		"success": true,
-		"message": "CSV imported successfully",
-		"parsed":  len(txs),
-		"added":   added,
-		"skipped": len(txs) - added,
-	})
-}
+	newAccounts := []string{}
+	seen := map[string]bool{}
+	for _, tx := range txs {
+		if _, ok := known[tx.Account]; !ok && tx.Account != "" && !seen[tx.Account] {
+			seen[tx.Account] = true
+			newAccounts = append(newAccounts, tx.Account)
+		}
+	}
+	sort.Strings(newAccounts)
 
-type MetadataUpdateRequest struct {
-	Classifications  map[string]AssetClass `json:"classifications"`
-	AssetNames       map[string]string     `json:"asset_names"`
-	ManualPrices     map[string]float64    `json:"manual_prices"`
-	ManualCurrencies map[string]string     `json:"manual_currencies"`
-	ExchangeRates    map[string]float64    `json:"exchange_rates"`
-	AccountNames     map[string]string     `json:"account_names"`
-	AutoFetchRates   bool                  `json:"auto_fetch_rates"`
+	respondWithJSON(w, http.StatusOK, map[string]any{
+		"parsed":       len(txs),
+		"added":        added,
+		"skipped":      len(txs) - added,
+		"new_accounts": newAccounts,
+	})
 }
 
 // SaveMetadata handles POST /api/metadata
 func (s *Server) SaveMetadata(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	var u MetadataUpdate
+	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Ugyldig JSON: "+err.Error())
 		return
 	}
-
-	var req MetadataUpdateRequest
-	err := json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
-		s.respondWithError(w, http.StatusBadRequest, "Invalid JSON: "+err.Error())
+	if err := s.storage.SaveMetadata(u); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Kunne ikke gemme ændringerne: "+err.Error())
 		return
 	}
-
-	err = s.storage.SaveAssetMetadata(
-		req.Classifications,
-		req.AssetNames,
-		req.ManualPrices,
-		req.ManualCurrencies,
-		req.ExchangeRates,
-		req.AccountNames,
-		req.AutoFetchRates,
-	)
-	if err != nil {
-		s.respondWithError(w, http.StatusInternalServerError, "Failed to save metadata: "+err.Error())
-		return
-	}
-
-	s.respondWithJSON(w, http.StatusOK, map[string]interface{}{
-		"success": true,
-		"message": "Metadata updated successfully",
-	})
-}
-
-// GetTransactions handles GET /api/transactions
-func (s *Server) GetTransactions(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	db := s.storage.GetDB()
-	txs := db.Transactions
-
-	// Sort newest first
-	sort.Slice(txs, func(i, j int) bool {
-		if txs[i].BookingDate != txs[j].BookingDate {
-			return txs[i].BookingDate > txs[j].BookingDate
-		}
-		return txs[i].ID > txs[j].ID
-	})
-
-	s.respondWithJSON(w, http.StatusOK, txs)
+	respondWithJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
 // ResetDatabase handles POST /api/reset
 func (s *Server) ResetDatabase(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	if err := s.storage.Reset(); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Kunne ikke nulstille databasen: "+err.Error())
 		return
 	}
-
-	// Just overwrite file with default empty db
-	s.storage.mu.Lock()
-	s.storage.db = AppDatabase{
-		Transactions:     make([]Transaction, 0),
-		Classifications:  make(map[string]AssetClass),
-		AssetNames:       make(map[string]string),
-		AssetSymbols:     make(map[string]string),
-		ManualPrices:     make(map[string]float64),
-		ManualCurrencies: make(map[string]string),
-		ExchangeRates: map[string]float64{
-			"DKK": 1.0,
-			"EUR": 7.46,
-			"USD": 6.90,
-		},
-		AccountNames:     make(map[string]string),
-		AutoFetchRates:   true,
-	}
-	err := s.storage.save()
-	s.storage.mu.Unlock()
-
-	if err != nil {
-		s.respondWithError(w, http.StatusInternalServerError, "Failed to reset database: "+err.Error())
-		return
-	}
-
-	s.respondWithJSON(w, http.StatusOK, map[string]interface{}{
-		"success": true,
-		"message": "Database reset successfully",
-	})
+	respondWithJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
-func (s *Server) respondWithError(w http.ResponseWriter, status int, message string) {
-	s.respondWithJSON(w, status, map[string]string{"error": message})
+func parseAccounts(r *http.Request) map[string]bool {
+	accounts := map[string]bool{}
+	for _, acc := range strings.Split(r.URL.Query().Get("accounts"), ",") {
+		if acc = strings.TrimSpace(acc); acc != "" {
+			accounts[acc] = true
+		}
+	}
+	return accounts
 }
 
-func (s *Server) respondWithJSON(w http.ResponseWriter, status int, payload interface{}) {
+func listAccounts(db Database) []Account {
+	ids := map[string]bool{}
+	for id := range db.AccountNames {
+		ids[id] = true
+	}
+	for _, tx := range db.Transactions {
+		if tx.Account != "" {
+			ids[tx.Account] = true
+		}
+	}
+
+	accounts := make([]Account, 0, len(ids))
+	for id := range ids {
+		name := db.AccountNames[id]
+		if name == "" {
+			name = id
+		}
+		accounts = append(accounts, Account{ID: id, Name: name})
+	}
+	sort.Slice(accounts, func(i, j int) bool { return accounts[i].ID < accounts[j].ID })
+	return accounts
+}
+
+func respondWithError(w http.ResponseWriter, status int, message string) {
+	respondWithJSON(w, status, map[string]string{"error": message})
+}
+
+func respondWithJSON(w http.ResponseWriter, status int, payload any) {
 	response, err := json.Marshal(payload)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error":"Internal Server Error"}`))
+		http.Error(w, `{"error":"Internal Server Error"}`, http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	w.Write(response)
-}
-
-type DbSummary struct {
-	TransactionCount int                `json:"transaction_count"`
-	AssetCount       int                `json:"asset_count"`
-	ExchangeRates    map[string]float64 `json:"exchange_rates"`
-	AutoFetchRates   bool               `json:"auto_fetch_rates"`
-	DisableFXAPI     bool               `json:"disable_fx_api"`
-}
-
-func (s *Server) getDbSummary(db AppDatabase) DbSummary {
-	return DbSummary{
-		TransactionCount: len(db.Transactions),
-		AssetCount:       len(db.AssetSymbols),
-		ExchangeRates:    db.ExchangeRates,
-		AutoFetchRates:   db.AutoFetchRates,
-		DisableFXAPI:     s.disableFXAPI,
-	}
-}
-
-type LiveRatesResponse struct {
-	Success bool               `json:"success"`
-	Rates   map[string]float64 `json:"rates"`
-}
-
-// GetLiveRates handles GET /api/live-rates
-func (s *Server) GetLiveRates(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	if s.disableFXAPI {
-		s.respondWithError(w, http.StatusForbidden, "Live FX rates fetching is disabled on this server")
-		return
-	}
-
-	rates, err := fetchLiveFXRates()
-	if err != nil {
-		s.respondWithError(w, http.StatusBadGateway, "Failed to fetch live rates: "+err.Error())
-		return
-	}
-
-	s.respondWithJSON(w, http.StatusOK, LiveRatesResponse{
-		Success: true,
-		Rates:   rates,
-	})
-}
-
-func fetchLiveFXRates() (map[string]float64, error) {
-	client := &http.Client{Timeout: 5 * time.Second}
-
-	// Try Frankfurter API first with correct base=DKK parameter
-	resp, err := client.Get("https://api.frankfurter.app/latest?base=DKK")
-	if err == nil && resp.StatusCode == http.StatusOK {
-		defer resp.Body.Close()
-		var result struct {
-			Rates map[string]float64 `json:"rates"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&result); err == nil {
-			converted := make(map[string]float64)
-			for curr, rate := range result.Rates {
-				if rate > 0 {
-					converted[curr] = 1.0 / rate
-				}
-			}
-			converted["DKK"] = 1.0
-			return converted, nil
-		}
-	}
-
-	// Fallback to keyless open ExchangeRate-API (highly reliable backup)
-	resp, err = client.Get("https://open.er-api.com/v6/latest/DKK")
-	if err == nil && resp.StatusCode == http.StatusOK {
-		defer resp.Body.Close()
-		var result struct {
-			Rates map[string]float64 `json:"rates"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&result); err == nil {
-			converted := make(map[string]float64)
-			for curr, rate := range result.Rates {
-				if rate > 0 {
-					converted[curr] = 1.0 / rate
-				}
-			}
-			converted["DKK"] = 1.0
-			return converted, nil
-		}
-	}
-
-	return nil, errors.New("both primary and fallback FX APIs are unreachable")
 }
